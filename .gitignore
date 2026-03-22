@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Environment variables (keep .env.example if you have one)
+backend/.env
+.env.local
+
+# Data / corrections
+backend/data/
+
+# Temp files from translation
+*.tmp
+uploads/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# API docs exports (generated files)
+API.html
+API.pdf
+API.png
+API.jpeg

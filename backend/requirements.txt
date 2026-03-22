@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-multipart
+requests
+google-auth
+google-cloud-translate
+google-api-python-client
+python-dotenv
+mammoth
+python-docx
+openai
+google-genai
+beautifulsoup4
+gunicorn
+pdfkit
+pymupdf
+anthropic
