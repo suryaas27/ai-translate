@@ -18,7 +18,6 @@ const DocTranslation = () => {
     const [savingCorrection, setSavingCorrection] = useState(false);
     const [evaluating, setEvaluating] = useState(false);
     const [translationProvider, setTranslationProvider] = useState('gemini');
-    const [reviewProvider, setReviewProvider] = useState('gemini');
     const [nativeDocxB64, setNativeDocxB64] = useState(null);
     const [translatedPdfB64, setTranslatedPdfB64] = useState(null);
     const [progress, setProgress] = useState(null); // { done, total } during streaming
@@ -40,16 +39,8 @@ const DocTranslation = () => {
 
     const providers = [
         { code: 'gemini', name: 'Gemini (LLM)' },
-        { code: 'sarvam', name: 'Sarvam-1' },
-        { code: 'indictrans2', name: 'IndicTrans2' },
         { code: 'openai', name: 'OpenAI (GPT-4o)' },
         { code: 'anthropic', name: 'Claude' },
-        { code: 'google', name: 'Google Translate' }
-    ];
-
-    const reviewProviders = [
-        { code: 'gemini', name: 'Gemini (Reviewer)' },
-        { code: 'openai', name: 'OpenAI (Reviewer)' }
     ];
 
     const handleFileChange = (e) => {
@@ -78,7 +69,7 @@ const DocTranslation = () => {
         formData.append('file', file);
         formData.append('target_language', language);
 
-        const isLLM = ['gemini', 'sarvam', 'indictrans2', 'openai', 'anthropic'].includes(translationProvider);
+        const isLLM = ['gemini', 'openai', 'anthropic'].includes(translationProvider);
         if (isLLM) formData.append('llm_provider', translationProvider);
 
         const isPdf = file.name.toLowerCase().endsWith('.pdf');
@@ -166,10 +157,10 @@ const DocTranslation = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    original_text: originalHtml.replace(/<[^>]*>?/gm, ' '), // Send plain text version
+                    original_text: originalHtml.replace(/<[^>]*>?/gm, ' '),
                     translated_text: html.replace(/<[^>]*>?/gm, ' '),
                     target_language: translatedLang,
-                    reviewer_provider: reviewProvider
+                    reviewer_provider: 'gemini'
                 }),
             });
             const data = await response.json();
@@ -425,62 +416,7 @@ const DocTranslation = () => {
                                     </option>
                                 ))}
                             </select>
-                            {translationProvider === 'gemini' && (
-                                <p className="text-xs text-blue-600 mt-1">
-                                    ✨ AI-powered translation with better context understanding
-                                </p>
-                            )}
-                            {translationProvider === 'sarvam' && (
-                                <p className="text-xs text-orange-600 mt-1">
-                                    🇮🇳 Optimized for Indian languages via Sarvam AI
-                                </p>
-                            )}
-                            {translationProvider === 'indictrans2' && (
-                                <p className="text-xs text-green-600 mt-1">
-                                    📊 IndicTrans2 by AI4Bharat
-                                </p>
-                            )}
-                            {translationProvider === 'openai' && (
-                                <p className="text-xs text-green-600 mt-1">
-                                    🤖 GPT-4o powered translation for high accuracy
-                                </p>
-                            )}
-                            {translationProvider === 'anthropic' && (
-                                <p className="text-xs text-purple-600 mt-1">
-                                    🧠 Claude Sonnet for nuanced, high-quality translation
-                                </p>
-                            )}
                         </div>
-
-                        {/* Review Provider Selection */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Review Provider (Judge)</label>
-                            <select
-                                value={reviewProvider}
-                                onChange={(e) => setReviewProvider(e.target.value)}
-                                className="w-full p-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                                {reviewProviders.map((provider) => (
-                                    <option key={provider.code} value={provider.code}>
-                                        {provider.name}
-                                    </option>
-                                ))}
-                            </select>
-                            <p className="text-xs text-slate-500 mt-1">
-                                Choose which model evaluates the translation quality
-                            </p>
-                        </div>
-
-                        {/* Provider Conflict Warning */}
-                        {translationProvider === reviewProvider && (
-                            <div className="flex items-start gap-2 p-3 bg-amber-50 text-amber-700 rounded-lg text-xs border border-amber-100 animate-pulse">
-                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                                <div>
-                                    <p className="font-bold">Self-Review Warning</p>
-                                    <p>Using the same model for both translation and review may lead to biased evaluations. Try a different Reviewer for better results.</p>
-                                </div>
-                            </div>
-                        )}
 
                         {/* Action Button */}
                         <button
@@ -599,7 +535,7 @@ const DocTranslation = () => {
                                         }`}>
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-2">
-                                                <span className="text-sm font-bold text-slate-800">Judge Feedback ({reviewProvider.toUpperCase()})</span>
+                                                <span className="text-sm font-bold text-slate-800">Judge Feedback (Gemini)</span>
                                                 <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${evaluation.score >= 8 ? 'bg-emerald-100 text-emerald-700' :
                                                     evaluation.score >= 5 ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
                                                     }`}>

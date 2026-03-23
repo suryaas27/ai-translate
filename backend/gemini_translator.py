@@ -11,7 +11,8 @@ class GeminiTranslator(BaseTranslator):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
-        self.client = genai.Client(api_key=api_key)
+        # timeout=120s per request so hung API calls don't block chunks indefinitely
+        self.client = genai.Client(api_key=api_key, http_options={'timeout': 120})
         self.wingdings_map = {
             '\uF0A7': '☑', '\uF0A8': '☐', 
             '\uF071': '✓', '\uF072': '✗',
@@ -86,7 +87,7 @@ Translated HTML:"""
                 break
             except Exception as e:
                 if '429' in str(e) or 'RESOURCE_EXHAUSTED' in str(e):
-                    wait = 30 * (attempt + 1)  # 30s, 60s, 90s
+                    wait = 10 * (attempt + 1)  # 10s, 20s, 30s
                     print(f"[Gemini] Rate limit hit, retrying in {wait}s (attempt {attempt+1}/4)")
                     time.sleep(wait)
                 else:
@@ -189,7 +190,7 @@ Translated segments:"""
                         break
                     except Exception as e:
                         if '429' in str(e) or 'RESOURCE_EXHAUSTED' in str(e):
-                            wait = 30 * (attempt + 1)
+                            wait = 10 * (attempt + 1)  # 10s, 20s, 30s
                             print(f"[Gemini] Rate limit hit in batch, retrying in {wait}s (attempt {attempt+1}/4)")
                             time.sleep(wait)
                         else:

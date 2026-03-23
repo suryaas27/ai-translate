@@ -1,12 +1,27 @@
 import anthropic
 import os
+import re
 import time
-from typing import Dict
+from typing import Dict, Tuple
 from docx import Document
 from base_translator import BaseTranslator
 
 
 class AnthropicTranslator(BaseTranslator):
+    # Terms that must NEVER be translated — ordered longest-first to avoid partial matches
+    PROTECTED_TERMS = [
+        "L&T Finance Holdings Limited", "L&T Finance Holdings",
+        "L&T Finance Limited", "L&T Housing Finance Limited",
+        "L&T Housing Finance", "L&T Finance", "L&T",
+        # Entity suffixes
+        "Pvt. Ltd.", "Pvt Ltd", "Ltd.", "Co.", "Inc.", "Corp.", "Limited", "M/s",
+        # Regulatory / financial abbreviations
+        "NACH", "CIBIL", "NEFT", "RTGS", "MSME", "NBFC", "FOIR",
+        "RBI", "SEBI", "GST", "PAN", "TDS", "EMI", "UPI", "KYC",
+        "NPA", "MOU", "LOA", "NOC", "CIN", "DIN", "LLPIN", "SRN",
+        "ROI", "IRR", "APR",
+    ]
+
     def __init__(self):
         """Initialize Anthropic client with API key from environment"""
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -20,6 +35,29 @@ class AnthropicTranslator(BaseTranslator):
             '\uF071': '✓', '\uF072': '✗',
             '\uF06F': '☐', '\uF0FE': '■',
         }
+
+    def _protect_terms(self, text: str) -> Tuple[str, Dict[str, str]]:
+        """Replace protected terms with __TERM_N__ tokens so the LLM cannot alter them."""
+        term_map: Dict[str, str] = {}
+        for i, term in enumerate(self.PROTECTED_TERMS):
+            if term in text:
+                token = f"__TERM_{i}__"
+                term_map[token] = term
+                text = text.replace(term, token)
+        # Also protect [[...]] placeholder tokens
+        bracket_tokens = re.findall(r'\[\[.*?\]\]', text)
+        for j, bt in enumerate(bracket_tokens):
+            token = f"__BRACKET_{j}__"
+            if token not in term_map:
+                term_map[token] = bt
+                text = text.replace(bt, token, 1)
+        return text, term_map
+
+    def _restore_terms(self, text: str, term_map: Dict[str, str]) -> str:
+        """Restore __TERM_N__ / __BRACKET_N__ tokens back to their original values."""
+        for token, original in term_map.items():
+            text = text.replace(token, original)
+        return text
 
     def _call_with_retry(self, **kwargs):
         """Call the Anthropic API with exponential backoff on 529 overloaded errors."""
@@ -54,8 +92,20 @@ class AnthropicTranslator(BaseTranslator):
 
         target_lang_name = language_names.get(target_language, target_language)
 
-        prompt = f"""You are an expert document translator specializing in corporate and regulatory documents. Translate the following HTML document to {target_lang_name}.
+        # Protect known terms before sending to LLM
+        protected_html, term_map = self._protect_terms(html_content)
 
+        token_note = ""
+        if term_map:
+            token_note = (
+                "\n⚠️  TOKEN PRESERVATION: The input contains __TERM_N__ and __BRACKET_N__ tokens "
+                "(e.g., __TERM_0__, __TERM_1__, __BRACKET_0__). These are placeholders for proper "
+                "nouns and IDs. You MUST copy them into the output EXACTLY as-is — never translate, "
+                "modify, or remove them.\n"
+            )
+
+        prompt = f"""You are an expert document translator specializing in corporate and regulatory documents. Translate the following HTML document to {target_lang_name}.
+{token_note}
 ═══════════════════════════════════════════════════════════
 SECTION A: HTML STRUCTURE PRESERVATION (ABSOLUTE RULES)
 ═══════════════════════════════════════════════════════════
@@ -78,24 +128,48 @@ Translate ONLY the visible text content that appears BETWEEN HTML tags:
 - Text content inside `docx-header` and `docx-footer` divs.
 
 ═══════════════════════════════════════════════════════════
-SECTION C: DO NOT TRANSLATE
+SECTION C: ABSOLUTE DO-NOT-TRANSLATE LIST
 ═══════════════════════════════════════════════════════════
 
-- **Company Names:** L&T, L&T Finance, L&T Finance Limited, M/s, Pvt Ltd, Co., Ltd., Inc., Corp.
-- **Financial Terms:** RBI, SEBI, GST, PAN, TDS, EMI, etc.
-- **Technical IDs:** Any string inside brackets like [[...]]
+UNDER NO CIRCUMSTANCES translate ANY of the following. They must appear in the output EXACTLY as they appear in the input:
+
+**Company / Entity Names (keep in Roman script, word-for-word):**
+L&T, L&T Finance, L&T Finance Limited, L&T Finance Holdings, L&T Finance Holdings Limited,
+L&T Housing Finance, L&T Housing Finance Limited, M/s, Pvt Ltd, Pvt. Ltd., Ltd., Co., Inc., Corp., Limited
+
+**Regulatory & Financial Abbreviations (keep as uppercase Roman letters):**
+RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, NEFT, RTGS, UPI, MSME, NPA, NBFC,
+MOU, LOA, NOC, CIN, DIN, LLPIN, SRN, ROI, IRR, APR, FOIR
+
+**Placeholder Tokens (copy byte-for-byte):**
+Any token matching __TERM_N__ or __BRACKET_N__ (e.g., __TERM_0__, __BRACKET_2__)
+Any string matching [[...]] (e.g., [[IMG_PLACEHOLDER_0]])
+
+❌ WRONG:  "एल एंड टी फाइनेंस लिमिटेड"  (translated company name)
+✅ CORRECT: "L&T Finance Limited"            (kept in Roman script)
+
+❌ WRONG:  "आरबीआई"  (translated abbreviation)
+✅ CORRECT: "RBI"     (kept as-is)
 
 Return ONLY the translated HTML. No explanations, no markdown code blocks.
 
 HTML to translate:
-{html_content}
+{protected_html}
 
 Translated HTML:"""
 
         response = self._call_with_retry(
             model=self.model,
             max_tokens=8096,
-            system="You are an expert corporate document translator. Your ONLY job is to translate text content between HTML tags while preserving ALL HTML structure, CSS, styles, images, tables, and layout EXACTLY as given. You specialize in Indian regulatory and financial documents.",
+            system=(
+                "You are an expert corporate document translator. Your ONLY job is to translate "
+                "text content between HTML tags while preserving ALL HTML structure, CSS, styles, "
+                "images, tables, and layout EXACTLY as given. You specialize in Indian regulatory "
+                "and financial documents. CRITICAL: Company names (L&T, L&T Finance, etc.), "
+                "regulatory abbreviations (RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, NEFT, "
+                "RTGS, UPI, MSME, NBFC), and placeholder tokens (__TERM_N__, __BRACKET_N__, [[...]]) "
+                "must NEVER be translated — copy them verbatim into the output."
+            ),
             messages=[{"role": "user", "content": prompt}],
             temperature=0
         )
@@ -109,6 +183,9 @@ Translated HTML:"""
                 start_idx = 1 if lines[0].startswith("```") else 0
                 end_idx = -1 if lines[-1].strip() == "```" else len(lines)
                 translated_html = '\n'.join(lines[start_idx:end_idx]).strip()
+
+        # Restore protected terms
+        translated_html = self._restore_terms(translated_html, term_map)
 
         return {
             "translated_html": translated_html,
@@ -162,28 +239,49 @@ Translated HTML:"""
 
         def _translate_batch(batch):
             try:
+                # Protect terms in each segment
+                protected_batch = []
+                batch_term_maps = []
+                for seg in batch:
+                    p_seg, t_map = self._protect_terms(seg)
+                    protected_batch.append(p_seg)
+                    batch_term_maps.append(t_map)
+
                 prompt = f"""You are a professional corporate document translator specializing in legal and regulatory filings.
 Translate the following Word document segments into {target_lang_name}.
 
 CRITICAL RULES:
 1. Translate ONLY the text content provided.
-2. Return precisely the same number of lines as input.
+2. Return EXACTLY the same number of lines as input — one translated line per input line.
 3. Separate each translated segment with a single newline (\\n).
 4. DO NOT add any explanations, numeric indices, or markdown formatting.
-5. PRESERVE company names exactly: "L&T", "L&T Finance", "M/s", "Pvt Ltd", "Ltd.", "Co.", "Limited".
-6. PRESERVE numbers, dates, and technical abbreviations (RBI, SEBI, GST, PAN).
-7. PRESERVE and INCLUDE checkboxes (☑, ☐) and symbols (✓, ✗) exactly as they appear in the source segments.
+5. PRESERVE checkboxes (☑, ☐) and symbols (✓, ✗) exactly as they appear.
+
+ABSOLUTE DO-NOT-TRANSLATE LIST — copy these verbatim, NEVER translate them:
+- Company names: L&T, L&T Finance, L&T Finance Limited, L&T Finance Holdings, L&T Housing Finance, M/s, Pvt Ltd, Pvt. Ltd., Ltd., Co., Inc., Corp., Limited
+- Regulatory abbreviations: RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, NEFT, RTGS, UPI, MSME, NPA, NBFC, MOU, LOA, NOC, CIN, DIN, LLPIN, SRN, ROI, IRR, APR, FOIR
+- Placeholder tokens: any token matching __TERM_N__ or __BRACKET_N__ (e.g., __TERM_0__, __BRACKET_2__)
+
+❌ WRONG:  "एल एंड टी फाइनेंस लिमिटेड"  →  ✅ CORRECT: "L&T Finance Limited"
+❌ WRONG:  "आरबीआई"                       →  ✅ CORRECT: "RBI"
 
 Segments to translate:
 ---
-{chr(10).join(batch)}
+{chr(10).join(protected_batch)}
 ---
 
 Translated segments (Exactly {len(batch)} lines):"""
                 response = self._call_with_retry(
                     model=self.model,
                     max_tokens=4096,
-                    system=f"You are a professional corporate translator. Your output must contain exactly {len(batch)} lines, each corresponding to an input segment. Do not add any conversational text or formatting.",
+                    system=(
+                        f"You are a professional corporate translator. Your output must contain "
+                        f"exactly {len(batch)} lines, each corresponding to an input segment. "
+                        f"Do not add any conversational text or formatting. "
+                        f"NEVER translate: company names (L&T, L&T Finance, M/s, Pvt Ltd, Ltd., Limited), "
+                        f"regulatory abbreviations (RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, "
+                        f"NEFT, RTGS, UPI, MSME, NBFC), or placeholder tokens (__TERM_N__, __BRACKET_N__)."
+                    ),
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0
                 )
@@ -192,7 +290,15 @@ Translated segments (Exactly {len(batch)} lines):"""
                     lines = raw_output.split('\n')
                     if len(lines) > 2:
                         raw_output = '\n'.join(lines[1:-1]).strip()
-                batch_translated = [t.strip() for t in raw_output.split('\n') if t.strip()]
+                batch_translated_raw = [t.strip() for t in raw_output.split('\n') if t.strip()]
+
+                # Restore protected terms in each translated segment
+                batch_translated = []
+                for idx, translated_seg in enumerate(batch_translated_raw):
+                    if idx < len(batch_term_maps):
+                        translated_seg = self._restore_terms(translated_seg, batch_term_maps[idx])
+                    batch_translated.append(translated_seg)
+
                 return dict(zip(batch, batch_translated))
             except Exception as e:
                 print(f"[Anthropic] Batch translation failed, keeping originals: {e}")
