@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.100.0",
     "@syncfusion/ej2-base": "^33.1.44",
     "@syncfusion/ej2-react-documenteditor": "^33.1.44",
     "@tailwindcss/postcss": "^4.1.17",

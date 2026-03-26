@@ -16,3 +16,6 @@ pdfkit
 pymupdf
 anthropic
 sarvamai
+boto3>=1.34.0
+botocore>=1.34.0
+google-cloud-aiplatform>=1.60.0

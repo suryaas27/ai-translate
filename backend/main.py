@@ -54,34 +54,65 @@ except Exception as e:
 translator_registry = {}
 reviewer_registry = {}
 
-# Initialize Translators
-try:
-    if os.getenv("GEMINI_API_KEY"):
-        translator_registry["gemini"] = GeminiTranslator()
-        print("DEBUG: Gemini Translator registered")
-except Exception as e:
-    print(f"WARNING: Gemini Translator failed: {e}")
+TRANSLATION_FLOW = os.getenv("TRANSLATION_FLOW", "direct")
+print(f"[Startup] Translation flow: {TRANSLATION_FLOW}")
 
-try:
-    if os.getenv("SARVAM_API_KEY"):
-        translator_registry["sarvam"] = SarvamTranslator()
-        print("DEBUG: Sarvam Translator registered")
-except Exception as e:
-    print(f"WARNING: Sarvam Translator failed: {e}")
+if TRANSLATION_FLOW == "server":
+    # Server flow: route provider codes through enterprise deployments
+    # openai → Azure AI Foundry, anthropic → AWS Bedrock, gemini → Google Vertex AI
+    try:
+        if os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("AWS_DEFAULT_REGION"):
+            from bedrock_translator import BedrockTranslator
+            translator_registry["anthropic"] = BedrockTranslator()
+            print("DEBUG: Bedrock Translator registered as 'anthropic'")
+    except Exception as e:
+        print(f"WARNING: Bedrock Translator failed: {e}")
 
-try:
-    if os.getenv("OPENAI_API_KEY"):
-        translator_registry["openai"] = OpenAITranslator()
-        print("DEBUG: OpenAI Translator registered")
-except Exception as e:
-    print(f"WARNING: OpenAI Translator failed: {e}")
+    try:
+        if os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"):
+            from azure_translator import AzureTranslator
+            translator_registry["openai"] = AzureTranslator()
+            print("DEBUG: Azure Translator registered as 'openai'")
+    except Exception as e:
+        print(f"WARNING: Azure Translator failed: {e}")
 
-try:
-    if os.getenv("ANTHROPIC_API_KEY"):
-        translator_registry["anthropic"] = AnthropicTranslator()
-        print("DEBUG: Anthropic Translator registered")
-except Exception as e:
-    print(f"WARNING: Anthropic Translator failed: {e}")
+    try:
+        if os.getenv("VERTEX_PROJECT"):
+            from vertex_translator import VertexTranslator
+            translator_registry["gemini"] = VertexTranslator()
+            print("DEBUG: Vertex Translator registered as 'gemini'")
+    except Exception as e:
+        print(f"WARNING: Vertex Translator failed: {e}")
+
+else:
+    # Direct flow (default): use public LLM APIs directly
+    try:
+        if os.getenv("GEMINI_API_KEY"):
+            translator_registry["gemini"] = GeminiTranslator()
+            print("DEBUG: Gemini Translator registered")
+    except Exception as e:
+        print(f"WARNING: Gemini Translator failed: {e}")
+
+    try:
+        if os.getenv("SARVAM_API_KEY"):
+            translator_registry["sarvam"] = SarvamTranslator()
+            print("DEBUG: Sarvam Translator registered")
+    except Exception as e:
+        print(f"WARNING: Sarvam Translator failed: {e}")
+
+    try:
+        if os.getenv("OPENAI_API_KEY"):
+            translator_registry["openai"] = OpenAITranslator()
+            print("DEBUG: OpenAI Translator registered")
+    except Exception as e:
+        print(f"WARNING: OpenAI Translator failed: {e}")
+
+    try:
+        if os.getenv("ANTHROPIC_API_KEY"):
+            translator_registry["anthropic"] = AnthropicTranslator()
+            print("DEBUG: Anthropic Translator registered")
+    except Exception as e:
+        print(f"WARNING: Anthropic Translator failed: {e}")
 
 # Initialize Reviewers
 try:
@@ -451,8 +482,6 @@ def _do_translate_pdf_google(content: bytes, target_language: str) -> dict:
     }
 
 
-PAGES_PER_CHUNK = 3  # keep each LLM call well under token limits
-
 _HTML_HEADER = (
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
     'body{font-family:Arial,sans-serif;max-width:900px;margin:0 auto;padding:20px;}'
@@ -462,7 +491,7 @@ _HTML_HEADER = (
 
 
 async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provider: str) -> dict:
-    """Translate PDF via LLM using sequential 3-page chunks to stay under token limits."""
+    """Translate PDF via LLM in a single call (all pages at once)."""
     import re as _re
 
     target_lang_code = 'hi' if target_language.lower() == 'rajasthani' else target_language
@@ -474,21 +503,17 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
     if not provider:
         raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
-    chunks = [pages[i:i + PAGES_PER_CHUNK] for i in range(0, len(pages), PAGES_PER_CHUNK)]
-    translated_pages = []
+    full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
+    print(f"[PDF-LLM] Translating all {len(pages)} pages in one call via {llm_provider}")
+    try:
+        result = await asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
+        body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
+        translated_body = body_match.group(1) if body_match else result["translated_html"]
+    except Exception as e:
+        print(f"[PDF-LLM] Translation failed ({e}), keeping original")
+        translated_body = ''.join(pages)
 
-    for idx, chunk_pages in enumerate(chunks):
-        chunk_html = _HTML_HEADER + ''.join(chunk_pages) + '</body></html>'
-        print(f"[PDF-LLM] Chunk {idx + 1}/{len(chunks)} ({len(chunk_pages)} pages) via {llm_provider}")
-        try:
-            result = await asyncio.to_thread(provider.translate_html, chunk_html, target_lang_code)
-            body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
-            translated_pages.append(body_match.group(1) if body_match else result["translated_html"])
-        except Exception as e:
-            print(f"[PDF-LLM] Chunk {idx + 1} failed ({e}), keeping original")
-            translated_pages.extend(chunk_pages)
-
-    translated_html = _HTML_HEADER + ''.join(translated_pages) + '</body></html>'
+    translated_html = _HTML_HEADER + translated_body + '</body></html>'
 
     # Auto-review: fix any missed English text
     translated_html = await _auto_review_translation(translated_html, target_lang_code)
@@ -514,6 +539,14 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
 @app.get("/")
 def read_root():
     return {"status": "running", "service": "ai-translate", "version": "1.0.0"}
+
+
+@app.get("/config")
+def get_config():
+    return {
+        "translation_flow": TRANSLATION_FLOW,
+        "available_providers": list(translator_registry.keys()),
+    }
 
 
 @app.post("/translate-docx")
@@ -578,7 +611,7 @@ async def translate_pdf_llm_stream(
     target_language: str = Body("hi"),
     llm_provider: str = Body("gemini")
 ):
-    """SSE endpoint — sequential 3-page chunks, emits a chunk event after each, then done."""
+    """SSE endpoint — translates all pages in a single LLM call, emits done when complete."""
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only .pdf files are supported")
 
@@ -592,51 +625,33 @@ async def translate_pdf_llm_stream(
     if not provider:
         raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
-    chunks = [pages[i:i + PAGES_PER_CHUNK] for i in range(0, len(pages), PAGES_PER_CHUNK)]
-
     import re as _re
 
     async def event_gen():
-        translated_pages = []
+        full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
+        print(f"[PDF-Stream] Translating all {len(pages)} pages in one call via {llm_provider}")
 
-        for idx, chunk_pages in enumerate(chunks):
-            if idx > 0:
-                await asyncio.sleep(2)  # breathing room between chunks to avoid rate limits
-
-            chunk_html = _HTML_HEADER + ''.join(chunk_pages) + '</body></html>'
-            print(f"[PDF-Stream] Chunk {idx + 1}/{len(chunks)} ({len(chunk_pages)} pages)")
-
-            # Run translation in a thread; send SSE keep-alive pings every 5s
-            # so the browser never drops the connection during long API calls / retries
-            task = asyncio.ensure_future(
-                asyncio.to_thread(provider.translate_html, chunk_html, target_lang_code)
-            )
-            while not task.done():
-                yield ": keep-alive\n\n"
-                try:
-                    await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
-                except asyncio.TimeoutError:
-                    pass  # still running — ping again
-
+        # Run translation in a thread; send SSE keep-alive pings every 5s
+        # so the browser never drops the connection during long API calls
+        task = asyncio.ensure_future(
+            asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
+        )
+        while not task.done():
+            yield ": keep-alive\n\n"
             try:
-                result = task.result()
-                body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
-                chunk_body = body_match.group(1) if body_match else result["translated_html"]
-            except Exception as e:
-                print(f"[PDF-Stream] Chunk {idx + 1} failed ({e}), keeping original")
-                chunk_body = ''.join(chunk_pages)
+                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass  # still running — ping again
 
-            translated_pages.append(chunk_body)
-            payload = json.dumps({
-                "type": "chunk",
-                "index": idx,
-                "total": len(chunks),
-                "done": idx + 1,
-                "html": chunk_body,
-            })
-            yield f"data: {payload}\n\n"
+        try:
+            result = task.result()
+            body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
+            translated_body = body_match.group(1) if body_match else result["translated_html"]
+        except Exception as e:
+            print(f"[PDF-Stream] Translation failed ({e}), keeping original")
+            translated_body = ''.join(pages)
 
-        full_html = _HTML_HEADER + ''.join(translated_pages) + '</body></html>'
+        full_html = _HTML_HEADER + translated_body + '</body></html>'
 
         translated_pdf_b64 = None
         try:

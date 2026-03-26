@@ -17,7 +17,7 @@ const DocTranslation = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [savingCorrection, setSavingCorrection] = useState(false);
     const [evaluating, setEvaluating] = useState(false);
-    const [translationProvider, setTranslationProvider] = useState('gemini');
+    const [translationProvider, setTranslationProvider] = useState('openai');
     const [nativeDocxB64, setNativeDocxB64] = useState(null);
     const [translatedPdfB64, setTranslatedPdfB64] = useState(null);
     const [progress, setProgress] = useState(null); // { done, total } during streaming
@@ -38,9 +38,9 @@ const DocTranslation = () => {
     ];
 
     const providers = [
-        { code: 'gemini', name: 'Gemini (LLM)' },
         { code: 'openai', name: 'OpenAI (GPT-4o)' },
         { code: 'anthropic', name: 'Claude' },
+        { code: 'gemini', name: 'Gemini (LLM)' },
     ];
 
     const handleFileChange = (e) => {
