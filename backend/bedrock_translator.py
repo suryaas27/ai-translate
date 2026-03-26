@@ -233,36 +233,44 @@ Translated HTML:"""
             doc.save(output_path)
             return output_path
 
-        batch_size = 20
+        batch_size = 15
         batches = [blocks[i:i + batch_size] for i in range(0, len(blocks), batch_size)]
 
-        def _translate_batch(batch):
+        def _translate_batch(batch: list) -> Tuple[Dict, int, int]:
             try:
-                protected_batch = []
-                batch_term_maps = []
+                protected_batch: list = []
+                batch_term_maps: list = []
                 for seg in batch:
                     p_seg, t_map = self._protect_terms(seg)
                     protected_batch.append(p_seg)
                     batch_term_maps.append(t_map)
 
-                prompt = f"""Translate each text segment to {target_lang_name}.
+                numbered_input = "\n".join(
+                    f"{i+1}: {seg}" for i, seg in enumerate(protected_batch)
+                )
 
-Return EXACTLY {len(batch)} lines — one translation per input segment.
-- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
+                prompt = f"""Translate each numbered text segment to {target_lang_name}.
+
+Output EXACTLY {len(batch)} lines, each prefixed with its number:
+1: <translation of segment 1>
+2: <translation of segment 2>
+...
+
+Rules:
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, NEVER translate.
+- NEVER invent new __TERM_N__ tokens — only copy tokens already present in the input.
 - Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
-- No explanations, numbering, or markdown.
+- No extra explanations or blank lines.
 
 Segments:
----
-{chr(10).join(protected_batch)}
----
+{numbered_input}
 
-Translated ({len(batch)} lines):"""
+Translations:"""
 
                 system_prompt = (
-                    f"Professional corporate translator. Output exactly {len(batch)} lines "
-                    f"matching the input count. Never add commentary or formatting. "
-                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim."
+                    f"Professional corporate translator. Output exactly {len(batch)} numbered lines "
+                    f"(e.g. '1: translation'). Never add commentary. "
+                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim — never invent new ones."
                 )
 
                 raw_output, in_tok, out_tok = self._call_bedrock(system_prompt, prompt)
@@ -271,27 +279,46 @@ Translated ({len(batch)} lines):"""
                     if len(lines) > 2:
                         raw_output = '\n'.join(lines[1:-1]).strip()
 
-                batch_translated_raw = [t.strip() for t in raw_output.split('\n') if t.strip()]
-                batch_translated = []
-                for idx, translated_seg in enumerate(batch_translated_raw):
-                    if idx < len(batch_term_maps):
-                        translated_seg = self._restore_terms(translated_seg, batch_term_maps[idx])
-                    batch_translated.append(translated_seg)
+                # Parse by number — robust to LLM returning fewer lines than expected
+                translations_by_num: Dict[int, str] = {}
+                for line in raw_output.split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if ': ' in line:
+                        num_str, _, trans = line.partition(': ')
+                        try:
+                            num = int(num_str.strip())
+                            if 1 <= num <= len(batch):
+                                translations_by_num[num] = trans.strip()
+                        except ValueError:
+                            pass
 
-                return dict(zip(batch, batch_translated)), in_tok, out_tok
+                if len(translations_by_num) < len(batch):
+                    print(f"[Bedrock] Warning: got {len(translations_by_num)}/{len(batch)} translations")
+
+                result: Dict[str, str] = {}
+                for i, orig_seg in enumerate(batch):
+                    num = i + 1
+                    if num in translations_by_num:
+                        translated_seg = self._restore_terms(translations_by_num[num], batch_term_maps[i])
+                    else:
+                        translated_seg = orig_seg  # fallback: keep original
+                    result[orig_seg] = translated_seg
+                return result, in_tok, out_tok
             except Exception as e:
                 print(f"[Bedrock] Batch translation failed, keeping originals: {e}")
                 return {seg: seg for seg in batch}, 0, 0
 
         doc_name = os.path.basename(docx_path)
-        total_input_tokens = 0
-        total_output_tokens = 0
-        translated_map = {}
+        total_input_tokens: int = 0
+        total_output_tokens: int = 0
+        translated_map: Dict[str, str] = {}
         for batch in batches:
             batch_result, in_tok, out_tok = _translate_batch(batch)
             translated_map.update(batch_result)
-            total_input_tokens += in_tok
-            total_output_tokens += out_tok
+            total_input_tokens += int(in_tok)
+            total_output_tokens += int(out_tok)
 
         from docx.oxml.ns import qn
 
@@ -351,10 +378,11 @@ Translated ({len(batch)} lines):"""
                 if obj:
                     apply_to_container(obj)
 
+        total_tokens: int = total_input_tokens + total_output_tokens  # type: ignore[operator]
         print(
             f"[Bedrock] [{doc_name}] Token usage — "
             f"input: {total_input_tokens:,}, output: {total_output_tokens:,}, "
-            f"total: {total_input_tokens + total_output_tokens:,}"
+            f"total: {total_tokens:,}"
         )
         doc.save(output_path)
         return output_path
@@ -452,7 +480,7 @@ Translated ({len(batch)} lines):"""
         # ------------------------------------------------------------------
         # 2. Batch translate (same prompt as translate_docx)
         # ------------------------------------------------------------------
-        batch_size = 20
+        batch_size = 15
         batches = [all_lines[i:i + batch_size] for i in range(0, len(all_lines), batch_size)]
 
         def _translate_batch(batch):
@@ -463,38 +491,73 @@ Translated ({len(batch)} lines):"""
                     protected_batch.append(p)
                     batch_term_maps.append(tm)
 
-                prompt = f"""Translate each text segment to {target_lang_name}.
-
-Return EXACTLY {len(batch)} lines — one translation per input segment.
-- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
-- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
-- No explanations, numbering, or markdown.
-
-Segments:
----
-{chr(10).join(protected_batch)}
----
-
-Translated ({len(batch)} lines):"""
-
-                system_prompt = (
-                    f"Professional corporate translator. Output exactly {len(batch)} lines "
-                    f"matching the input count. Never add commentary or formatting. "
-                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim."
+                # Numbered input so the LLM response can be parsed by number,
+                # not by position — immune to the LLM returning fewer lines.
+                numbered_input = "\n".join(
+                    f"{i+1}: {seg}" for i, seg in enumerate(protected_batch)
                 )
 
-                raw_output = self._call_bedrock(system_prompt, prompt)
+                prompt = f"""Translate each numbered text segment to {target_lang_name}.
+
+Output EXACTLY {len(batch)} lines, each prefixed with its number:
+1: <translation of segment 1>
+2: <translation of segment 2>
+...
+
+Rules:
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, NEVER translate.
+- NEVER invent new __TERM_N__ tokens — only copy tokens already present in the input.
+- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
+- No extra explanations or blank lines.
+
+Segments:
+{numbered_input}
+
+Translations:"""
+
+                system_prompt = (
+                    f"Professional corporate translator. Output exactly {len(batch)} numbered lines "
+                    f"(e.g. '1: translation'). Never add commentary. "
+                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim — never invent new ones."
+                )
+
+                raw_output, _, _ = self._call_bedrock(system_prompt, prompt)
                 if raw_output.startswith("```"):
                     lines_out = raw_output.split('\n')
                     if len(lines_out) > 2:
                         raw_output = '\n'.join(lines_out[1:-1]).strip()
-                batch_translated_raw = [t.strip() for t in raw_output.split('\n') if t.strip()]
-                batch_translated = []
-                for idx, translated_seg in enumerate(batch_translated_raw):
-                    if idx < len(batch_term_maps):
-                        translated_seg = self._restore_terms(translated_seg, batch_term_maps[idx])
-                    batch_translated.append(translated_seg)
-                return dict(zip(batch, batch_translated))
+
+                # Parse numbered lines — robust to missing/extra lines from LLM
+                translations_by_num: Dict[int, str] = {}
+                for line in raw_output.split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if ': ' in line:
+                        num_str, _, trans = line.partition(': ')
+                        try:
+                            num = int(num_str.strip())
+                            if 1 <= num <= len(batch):
+                                t = trans.strip()
+                                # Filter LLM meta-comments like "(Segment N not provided in input)"
+                                tl = t.lower()
+                                if not ('(segment' in tl and ('not' in tl or 'provid' in tl)):
+                                    translations_by_num[num] = t
+                        except ValueError:
+                            pass
+
+                if len(translations_by_num) < len(batch):
+                    print(f"[Bedrock-PDF] Warning: got {len(translations_by_num)}/{len(batch)} translations")
+
+                result = {}
+                for i, orig_seg in enumerate(batch):
+                    num = i + 1
+                    if num in translations_by_num:
+                        translated_seg = self._restore_terms(translations_by_num[num], batch_term_maps[i])
+                    else:
+                        translated_seg = orig_seg  # fallback: keep original
+                    result[orig_seg] = translated_seg
+                return result
             except Exception as e:
                 print(f"[Bedrock-PDF] Batch translation failed, keeping originals: {e}")
                 return {seg: seg for seg in batch}
@@ -508,6 +571,27 @@ Translated ({len(batch)} lines):"""
         # ------------------------------------------------------------------
         # 3. Apply translations page by page
         # ------------------------------------------------------------------
+        import html as _html_module
+
+        # Build CSS + archive once — insert_htmlbox uses the HTML/CSS engine
+        # (HarfBuzz shaping) which properly renders complex Indic script conjuncts.
+        # archive.add((bytes, name)) is required; fitz.Archive(dir) does NOT work.
+        _archive = fitz.Archive()
+        _fp = font_path or ""
+        if _fp and os.path.exists(_fp):
+            with open(_fp, "rb") as _f:
+                _font_bytes = _f.read()
+            _font_filename = os.path.basename(_fp)
+            _archive.add((_font_bytes, _font_filename))
+            _font_name = "DocFont"
+            _font_css = (
+                f'@font-face {{ font-family: "{_font_name}"; '
+                f'src: url("{_font_filename}"); }}'
+            )
+        else:
+            _font_name = "Helvetica, sans-serif"
+            _font_css = ""
+
         for page_no, page in enumerate(doc):
             raw = page.get_text("dict", flags=0)
 
@@ -531,14 +615,14 @@ Translated ({len(batch)} lines):"""
                         continue  # unchanged, no need to redact
 
                     first_span = spans[0]
+                    color_int = first_span.get("color", 0)
                     page_redactions.append({
                         "line_bbox": fitz.Rect(line["bbox"]),
-                        "origin": fitz.Point(first_span["origin"]),
                         "fontsize": first_span.get("size", 11),
-                        "color": (
-                            ((first_span.get("color", 0) >> 16) & 0xFF) / 255.0,
-                            ((first_span.get("color", 0) >> 8) & 0xFF) / 255.0,
-                            (first_span.get("color", 0) & 0xFF) / 255.0,
+                        "color_hex": "#{:02x}{:02x}{:02x}".format(
+                            (color_int >> 16) & 0xFF,
+                            (color_int >> 8) & 0xFF,
+                            color_int & 0xFF,
                         ),
                         "translated": translated_text,
                     })
@@ -551,23 +635,32 @@ Translated ({len(batch)} lines):"""
                 page.add_redact_annot(r["line_bbox"], fill=(1, 1, 1))
             page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
 
-            # Insert translated text at same baseline origin
+            # Insert translated text using insert_htmlbox:
+            #   - Full Unicode / proper Indic glyph shaping (no \x00 glyphs)
+            #   - Text is clipped to the original line bbox → no table overflow
+            #   - scale_low=0 → auto-shrinks font if text is longer than the bbox
             for r in page_redactions:
                 try:
-                    kwargs = {
-                        "point": r["origin"],
-                        "text": r["translated"],
-                        "fontsize": r["fontsize"],
-                        "color": r["color"],
-                    }
-                    if font_path:
-                        kwargs["fontfile"] = font_path
-                        kwargs["fontname"] = "custom"
-                    else:
-                        kwargs["fontname"] = "helv"
-                    page.insert_text(**kwargs)
+                    safe_text = _html_module.escape(r["translated"])
+                    # Reduce font size by 10% to give Indic text (wider glyphs) more room,
+                    # and clamp scale_low=0.75 so auto-shrink never drops below 75% —
+                    # this prevents jarring size variation across lines.
+                    adj_size = float(r["fontsize"]) * 0.90
+                    html_str = (
+                        f'<span style="font-family: {_font_name}; '
+                        f'font-size: {adj_size}pt; '
+                        f'color: {r["color_hex"]}; '
+                        f'line-height: 1.0;">{safe_text}</span>'
+                    )
+                    page.insert_htmlbox(
+                        r["line_bbox"],
+                        html_str,
+                        css=_font_css,
+                        archive=_archive,
+                        scale_low=0.75,
+                    )
                 except Exception as e:
-                    print(f"[Bedrock-PDF] insert_text failed: {e}")
+                    print(f"[Bedrock-PDF] insert_htmlbox failed: {e}")
 
         doc.save(output_path, garbage=4, deflate=True)
         doc.close()

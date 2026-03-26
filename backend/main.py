@@ -708,39 +708,70 @@ async def translate_pdf_llm_stream(
         raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
     import re as _re
+    import tempfile, os as _os
 
     async def event_gen():
-        full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
-        print(f"[PDF-Stream] Translating all {len(pages)} pages in one call via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
+        print(f"[PDF-Stream] Translating all {len(pages)} pages via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
 
-        # Run translation in a thread; send SSE keep-alive pings every 5s
-        # so the browser never drops the connection during long API calls
-        task = asyncio.ensure_future(
-            asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
-        )
-        while not task.done():
-            yield ": keep-alive\n\n"
+        # --- Native PDF path (batch plain-text, no token blowout) ---
+        if hasattr(provider, 'translate_pdf'):
+            tmp_in = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+            tmp_in.write(content)
+            tmp_in.close()
+            tmp_out_path = tmp_in.name.replace('.pdf', '_translated.pdf')
             try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
-            except asyncio.TimeoutError:
-                pass  # still running — ping again
+                task = asyncio.ensure_future(
+                    asyncio.to_thread(provider.translate_pdf, tmp_in.name, target_lang_code, tmp_out_path)
+                )
+                while not task.done():
+                    yield ": keep-alive\n\n"
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        pass
 
-        try:
-            result = task.result()
-            body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
-            translated_body = body_match.group(1) if body_match else result["translated_html"]
-        except Exception as e:
-            print(f"[PDF-Stream] Translation failed ({e}), keeping original")
-            translated_body = ''.join(pages)
+                task.result()  # re-raise any exception
+                with open(tmp_out_path, 'rb') as f:
+                    translated_pdf_bytes = f.read()
+                translated_pdf_b64 = base64.b64encode(translated_pdf_bytes).decode('utf-8')
+                full_html = extract_pdf_to_html(translated_pdf_bytes)
+            except Exception as e:
+                print(f"[PDF-Stream] Native PDF translation failed ({e}), keeping original")
+                full_html = original_html
+                translated_pdf_b64 = None
+            finally:
+                _os.unlink(tmp_in.name)
+                if _os.path.exists(tmp_out_path):
+                    _os.unlink(tmp_out_path)
 
-        full_html = _HTML_HEADER + translated_body + '</body></html>'
+        else:
+            # --- HTML fallback (large token usage — avoid for big PDFs) ---
+            full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
+            task = asyncio.ensure_future(
+                asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
+            )
+            while not task.done():
+                yield ": keep-alive\n\n"
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
 
-        translated_pdf_b64 = None
-        try:
-            pdf_io = html_to_pdf(full_html)
-            translated_pdf_b64 = base64.b64encode(pdf_io.getvalue()).decode('utf-8')
-        except Exception as pdf_err:
-            print(f"Warning: PDF generation failed: {pdf_err}")
+            try:
+                result = task.result()
+                body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
+                translated_body = body_match.group(1) if body_match else result["translated_html"]
+            except Exception as e:
+                print(f"[PDF-Stream] Translation failed ({e}), keeping original")
+                translated_body = ''.join(pages)
+
+            full_html = _HTML_HEADER + translated_body + '</body></html>'
+            translated_pdf_b64 = None
+            try:
+                pdf_io = html_to_pdf(full_html)
+                translated_pdf_b64 = base64.b64encode(pdf_io.getvalue()).decode('utf-8')
+            except Exception as pdf_err:
+                print(f"Warning: PDF generation failed: {pdf_err}")
 
         done_payload = json.dumps({
             "type": "done",

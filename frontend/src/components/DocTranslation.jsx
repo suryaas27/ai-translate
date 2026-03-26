@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileText, Languages, Loader2, Upload, AlertCircle, Download, FileDown, Eye, Edit3 } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 import ReactQuill from 'react-quill-new';
@@ -20,7 +20,19 @@ const DocTranslation = () => {
     const [translationProvider] = useState('openai');
     const [nativeDocxB64, setNativeDocxB64] = useState(null);
     const [translatedPdfB64, setTranslatedPdfB64] = useState(null);
+    const [pdfUrl, setPdfUrl] = useState(null);
     const [progress, setProgress] = useState(null); // { done, total } during streaming
+
+    // Convert base64 PDF to blob URL — Chrome blocks data: URI iframes for PDFs
+    useEffect(() => {
+        if (!translatedPdfB64) { setPdfUrl(null); return; }
+        const bytes = atob(translatedPdfB64);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
+        setPdfUrl(url);
+        return () => URL.revokeObjectURL(url);
+    }, [translatedPdfB64]);
 
     const languages = [
         { code: 'hi', name: 'Hindi' },
@@ -623,10 +635,11 @@ const DocTranslation = () => {
                                                     height="80vh"
                                                 />
                                             </div>
-                                        ) : translatedPdfB64 ? (
+                                        ) : pdfUrl ? (
                                             <iframe
-                                                src={`data:application/pdf;base64,${translatedPdfB64}`}
-                                                className="flex-1 w-full h-full border-none"
+                                                src={pdfUrl}
+                                                className="w-full border-none"
+                                                style={{ height: '70vh', minHeight: '500px' }}
                                                 title="PDF Preview"
                                             />
                                         ) : (

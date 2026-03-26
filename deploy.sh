@@ -28,7 +28,7 @@ deploy_backend() {
     --cpu 2 \
     --timeout 300 \
     --concurrency 10 \
-    --set-env-vars "^|^GCS_BUCKET_NAME=ops-e-stamp-store\
+    --set-env-vars "^|^GCS_BUCKET_NAME=ops-e-stamp-store|GCS_SIGNING_SERVICE_ACCOUNT_EMAIL=ocr-reader-sa@ai-initiattives.iam.gserviceaccount.com|GCP_PROJECT_ID=ai-initiattives|GCP_LOCATION=us|GCP_PROCESSOR_ID=f6019ba080b3e267|TRANSLATION_FLOW=server|AWS_ACCESS_KEY_ID=AKIAZB42IRWXXE5QJ36B|AWS_SECRET_ACCESS_KEY=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|AWS_DEFAULT_REGION=ap-south-1|BEDROCK_MODEL=global.anthropic.claude-haiku-4-5-20251001-v1:0|VERTEX_LOCATION=asia-south1|VERTEX_MODEL=gemini-2.5-flash|GEMINI_API_KEY=AIzaSyA-bdYyjIeiaxNTu8G8W16wmeNZlBFPKXk|ANTHROPIC_MODEL=claude-haiku-4-5-20251001"
 
   echo "Backend deployed."
 }
