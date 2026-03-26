@@ -1,12 +1,24 @@
 import os
+import re
 import time
-from typing import Dict
+from typing import Dict, Tuple
 from docx import Document
 from base_translator import BaseTranslator
 
 
 class VertexTranslator(BaseTranslator):
     """Translates via Google Vertex AI (Gemini). Used as the 'gemini' provider in server flow."""
+
+    PROTECTED_TERMS = [
+        "L&T Finance Holdings Limited", "L&T Finance Holdings",
+        "L&T Finance Limited", "L&T Housing Finance Limited",
+        "L&T Housing Finance", "L&T Finance", "L&T",
+        "Pvt. Ltd.", "Pvt Ltd", "Ltd.", "Co.", "Inc.", "Corp.", "Limited", "M/s",
+        "NACH", "CIBIL", "NEFT", "RTGS", "MSME", "NBFC", "FOIR",
+        "RBI", "SEBI", "GST", "PAN", "TDS", "EMI", "UPI", "KYC",
+        "NPA", "MOU", "LOA", "NOC", "CIN", "DIN", "LLPIN", "SRN",
+        "ROI", "IRR", "APR",
+    ]
 
     LANGUAGE_NAMES = {
         'hi': 'Hindi', 'te': 'Telugu', 'mr': 'Marathi', 'kn': 'Kannada',
@@ -32,6 +44,25 @@ class VertexTranslator(BaseTranslator):
             '\uF06F': '☐', '\uF0FE': '■',
         }
         print(f"[VertexTranslator] Initialized: model={self.model_name}, project={project}, location={location}")
+
+    def _protect_terms(self, text: str) -> Tuple[str, Dict[str, str]]:
+        term_map: Dict[str, str] = {}
+        for i, term in enumerate(self.PROTECTED_TERMS):
+            if term in text:
+                token = f"__TERM_{i}__"
+                term_map[token] = term
+                text = text.replace(term, token)
+        for j, bt in enumerate(re.findall(r'\[\[.*?\]\]', text)):
+            token = f"__BRACKET_{j}__"
+            if token not in term_map:
+                term_map[token] = bt
+                text = text.replace(bt, token, 1)
+        return text, term_map
+
+    def _restore_terms(self, text: str, term_map: Dict[str, str]) -> str:
+        for token, original in term_map.items():
+            text = text.replace(token, original)
+        return text
 
     # ------------------------------------------------------------------
     # Internal helper
@@ -160,29 +191,30 @@ Translated HTML:"""
 
         def _translate_batch(batch):
             try:
-                prompt = f"""You are a professional document translator specializing in corporate legal and regulatory documents.
-Translate the following Word document segments to {target_lang_name}.
+                protected_batch, batch_term_maps = [], []
+                for seg in batch:
+                    p, tm = self._protect_terms(seg)
+                    protected_batch.append(p)
+                    batch_term_maps.append(tm)
 
-CRITICAL RULES:
-1. Translate ONLY the text content provided.
-2. Return precisely the same number of segments as input.
-3. Separate each translated segment with a single newline (\\n).
-4. DO NOT add any explanations, numeric indices, or formatting.
-5. PRESERVE company names exactly: "L&T", "L&T Finance", "M/s", "Pvt Ltd", "Ltd.", "Co.", "Limited".
-6. PRESERVE numbers, dates, and technical abbreviations (RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC).
-7. PRESERVE and INCLUDE checkboxes (☑, ☐) and symbols (✓, ✗) exactly as they appear.
+                prompt = f"""Translate each text segment to {target_lang_name}.
 
-Segments to translate:
+Return EXACTLY {len(batch)} lines — one translation per input segment.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
+- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
+- No explanations, numbering, or markdown.
+
+Segments:
 ---
-{chr(10).join(batch)}
+{chr(10).join(protected_batch)}
 ---
 
-Translated segments:"""
+Translated ({len(batch)} lines):"""
 
                 system_prompt = (
-                    f"You are a professional corporate translator. Your output must contain exactly "
-                    f"{len(batch)} lines, each corresponding to an input segment. "
-                    "Do not add any conversational text or formatting."
+                    f"Professional corporate translator. Output exactly {len(batch)} lines "
+                    f"matching the input count. Never add commentary or formatting. "
+                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim."
                 )
 
                 raw_output = self._call_vertex(system_prompt, prompt)
@@ -190,7 +222,12 @@ Translated segments:"""
                     lines = raw_output.split('\n')
                     if len(lines) > 2:
                         raw_output = '\n'.join(lines[1:-1]).strip()
-                batch_translated = [t.strip() for t in raw_output.split('\n') if t.strip()]
+                batch_translated_raw = [t.strip() for t in raw_output.split('\n') if t.strip()]
+                batch_translated = []
+                for idx, translated_seg in enumerate(batch_translated_raw):
+                    if idx < len(batch_term_maps):
+                        translated_seg = self._restore_terms(translated_seg, batch_term_maps[idx])
+                    batch_translated.append(translated_seg)
                 return dict(zip(batch, batch_translated))
             except Exception as e:
                 print(f"[Vertex] Batch translation failed, keeping originals: {e}")

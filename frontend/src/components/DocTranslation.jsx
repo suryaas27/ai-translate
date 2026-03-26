@@ -17,7 +17,7 @@ const DocTranslation = () => {
     const [isEditing, setIsEditing] = useState(false);
     const [savingCorrection, setSavingCorrection] = useState(false);
     const [evaluating, setEvaluating] = useState(false);
-    const [translationProvider, setTranslationProvider] = useState('openai');
+    const [translationProvider] = useState('openai');
     const [nativeDocxB64, setNativeDocxB64] = useState(null);
     const [translatedPdfB64, setTranslatedPdfB64] = useState(null);
     const [progress, setProgress] = useState(null); // { done, total } during streaming
@@ -37,11 +37,6 @@ const DocTranslation = () => {
         { code: 'as', name: 'Assamese' },
     ];
 
-    const providers = [
-        { code: 'openai', name: 'OpenAI (GPT-4o)' },
-        { code: 'anthropic', name: 'Claude' },
-        { code: 'gemini', name: 'Gemini (LLM)' },
-    ];
 
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
@@ -402,21 +397,6 @@ const DocTranslation = () => {
                             )}
                         </div>
 
-                        {/* Translation Provider Selection */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Translation Provider</label>
-                            <select
-                                value={translationProvider}
-                                onChange={(e) => setTranslationProvider(e.target.value)}
-                                className="w-full p-2.5 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                                {providers.map((provider) => (
-                                    <option key={provider.code} value={provider.code}>
-                                        {provider.name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
 
                         {/* Action Button */}
                         <button

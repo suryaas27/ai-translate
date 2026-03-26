@@ -1,23 +1,52 @@
 from google import genai
 import os
+import re
 import time
-from typing import Dict
+from typing import Dict, Tuple
 from docx import Document
 from base_translator import BaseTranslator
 
 class GeminiTranslator(BaseTranslator):
+    PROTECTED_TERMS = [
+        "L&T Finance Holdings Limited", "L&T Finance Holdings",
+        "L&T Finance Limited", "L&T Housing Finance Limited",
+        "L&T Housing Finance", "L&T Finance", "L&T",
+        "Pvt. Ltd.", "Pvt Ltd", "Ltd.", "Co.", "Inc.", "Corp.", "Limited", "M/s",
+        "NACH", "CIBIL", "NEFT", "RTGS", "MSME", "NBFC", "FOIR",
+        "RBI", "SEBI", "GST", "PAN", "TDS", "EMI", "UPI", "KYC",
+        "NPA", "MOU", "LOA", "NOC", "CIN", "DIN", "LLPIN", "SRN",
+        "ROI", "IRR", "APR",
+    ]
+
     def __init__(self):
-        """Initialize Gemini client with API key from environment"""
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
-        # timeout=120s per request so hung API calls don't block chunks indefinitely
         self.client = genai.Client(api_key=api_key, http_options={'timeout': 120})
         self.wingdings_map = {
-            '\uF0A7': '☑', '\uF0A8': '☐', 
+            '\uF0A7': '☑', '\uF0A8': '☐',
             '\uF071': '✓', '\uF072': '✗',
             '\uF06F': '☐', '\uF0FE': '■',
         }
+
+    def _protect_terms(self, text: str) -> Tuple[str, dict]:
+        term_map = {}
+        for i, term in enumerate(self.PROTECTED_TERMS):
+            if term in text:
+                token = f"__TERM_{i}__"
+                term_map[token] = term
+                text = text.replace(term, token)
+        for j, bt in enumerate(re.findall(r'\[\[.*?\]\]', text)):
+            token = f"__BRACKET_{j}__"
+            if token not in term_map:
+                term_map[token] = bt
+                text = text.replace(bt, token, 1)
+        return text, term_map
+
+    def _restore_terms(self, text: str, term_map: dict) -> str:
+        for token, original in term_map.items():
+            text = text.replace(token, original)
+        return text
     
     def translate_html(self, html_content: str, target_language: str) -> Dict:
         """
@@ -163,24 +192,25 @@ Translated HTML:"""
 
         def _translate_batch(batch):
             try:
-                prompt = f"""You are a professional document translator specializing in corporate legal and regulatory documents.
-Translate the following Word document segments to {target_lang_name}.
+                protected_batch, batch_term_maps = [], []
+                for seg in batch:
+                    p, tm = self._protect_terms(seg)
+                    protected_batch.append(p)
+                    batch_term_maps.append(tm)
 
-CRITICAL RULES:
-1. Translate ONLY the text content provided.
-2. Return precisely the same number of segments as input.
-3. Separate each translated segment with a single newline (\n).
-4. DO NOT add any explanations, numeric indices, or formatting.
-5. PRESERVE company names exactly: "L&T", "L&T Finance", "M/s", "Pvt Ltd", "Ltd.", "Co.", "Limited".
-6. PRESERVE numbers, dates, and technical abbreviations (RBI, SEBI, GST, PAN).
-7. PRESERVE and INCLUDE checkboxes (☑, ☐) and symbols (✓, ✗) exactly as they appear in the source segments.
+                prompt = f"""Translate each text segment to {target_lang_name}.
 
-Segments to translate:
+Return EXACTLY {len(batch)} lines — one translation per input segment.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
+- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
+- No explanations, numbering, or markdown.
+
+Segments:
 ---
-{chr(10).join(batch)}
+{chr(10).join(protected_batch)}
 ---
 
-Translated segments:"""
+Translated ({len(batch)} lines):"""
                 for attempt in range(4):
                     try:
                         response = self.client.models.generate_content(
@@ -190,7 +220,7 @@ Translated segments:"""
                         break
                     except Exception as e:
                         if '429' in str(e) or 'RESOURCE_EXHAUSTED' in str(e):
-                            wait = 10 * (attempt + 1)  # 10s, 20s, 30s
+                            wait = 10 * (attempt + 1)
                             print(f"[Gemini] Rate limit hit in batch, retrying in {wait}s (attempt {attempt+1}/4)")
                             time.sleep(wait)
                         else:
@@ -202,11 +232,16 @@ Translated segments:"""
                     lines = raw_output.split('\n')
                     if len(lines) > 2:
                         raw_output = '\n'.join(lines[1:-1]).strip()
-                batch_translated = [t.strip() for t in raw_output.split('\n') if t.strip()]
+                batch_translated_raw = [t.strip() for t in raw_output.split('\n') if t.strip()]
+                batch_translated = [
+                    self._restore_terms(batch_translated_raw[i], batch_term_maps[i])
+                    if i < len(batch_translated_raw) else seg
+                    for i, seg in enumerate(batch)
+                ]
                 return dict(zip(batch, batch_translated))
             except Exception as e:
                 print(f"[Gemini] Batch translation failed, keeping originals: {e}")
-                return {seg: seg for seg in batch}  # fallback: keep original text
+                return {seg: seg for seg in batch}
 
         # Gemini free tier: ~15 RPM limit — pace batches with 5s gap to avoid rate limits
         translated_map = {}

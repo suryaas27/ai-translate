@@ -159,8 +159,13 @@ MOU, LOA, NOC, CIN, DIN, LLPIN, SRN, ROI, IRR, APR, FOIR
 Any token matching __TERM_N__ or __BRACKET_N__ (e.g., __TERM_0__, __BRACKET_2__)
 Any string matching [[...]] (e.g., [[IMG_PLACEHOLDER_0]])
 
-❌ WRONG:  "एल एंड टी फाइनेंस लिमिटेड"  →  ✅ CORRECT: "L&T Finance Limited"
-❌ WRONG:  "आरबीआई"                       →  ✅ CORRECT: "RBI"
+⚠️  CRITICAL TOKEN RULE: NEVER invent or create new __TERM_N__ or __BRACKET_N__ tokens.
+Only copy tokens that ALREADY EXIST verbatim in the input HTML.
+Words like "Company", "Borrower", "Lender", etc. must be TRANSLATED normally — do NOT replace them with tokens.
+
+❌ WRONG:  Replacing "Company" with "__TERM_1__"   →  ✅ CORRECT: Translate "Company" to the target language
+❌ WRONG:  "एल एंड टी फाइनेंस लिमिटेड"           →  ✅ CORRECT: "L&T Finance Limited"
+❌ WRONG:  "आरबीआई"                                →  ✅ CORRECT: "RBI"
 
 Return ONLY the translated HTML. No explanations, no markdown code blocks.
 
@@ -176,7 +181,9 @@ Translated HTML:"""
             "and financial documents. CRITICAL: Company names (L&T, L&T Finance, etc.), "
             "regulatory abbreviations (RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, NEFT, "
             "RTGS, UPI, MSME, NBFC), and placeholder tokens (__TERM_N__, __BRACKET_N__, [[...]]) "
-            "must NEVER be translated — copy them verbatim into the output."
+            "must NEVER be translated — copy them verbatim into the output. "
+            "NEVER invent new __TERM_N__ tokens — only copy tokens that already appear in the input. "
+            "Generic legal words like 'Company', 'Borrower', 'Lender' must be translated normally."
         )
 
         translated_html, input_tokens, output_tokens = self._call_bedrock(system_prompt, prompt)
@@ -238,37 +245,24 @@ Translated HTML:"""
                     protected_batch.append(p_seg)
                     batch_term_maps.append(t_map)
 
-                prompt = f"""You are a professional corporate document translator specializing in legal and regulatory filings.
-Translate the following Word document segments into {target_lang_name}.
+                prompt = f"""Translate each text segment to {target_lang_name}.
 
-CRITICAL RULES:
-1. Translate ONLY the text content provided.
-2. Return EXACTLY the same number of lines as input — one translated line per input line.
-3. Separate each translated segment with a single newline (\\n).
-4. DO NOT add any explanations, numeric indices, or markdown formatting.
-5. PRESERVE checkboxes (☑, ☐) and symbols (✓, ✗) exactly as they appear.
+Return EXACTLY {len(batch)} lines — one translation per input segment.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
+- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
+- No explanations, numbering, or markdown.
 
-ABSOLUTE DO-NOT-TRANSLATE LIST:
-- Company names: L&T, L&T Finance, L&T Finance Limited, L&T Finance Holdings, L&T Housing Finance, M/s, Pvt Ltd, Pvt. Ltd., Ltd., Co., Inc., Corp., Limited
-- Regulatory abbreviations: RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, NEFT, RTGS, UPI, MSME, NPA, NBFC, MOU, LOA, NOC, CIN, DIN, LLPIN, SRN, ROI, IRR, APR, FOIR
-- Placeholder tokens: any __TERM_N__ or __BRACKET_N__ (e.g., __TERM_0__, __BRACKET_2__)
-
-❌ WRONG:  "एल एंड टी फाइनेंस लिमिटेड"  →  ✅ CORRECT: "L&T Finance Limited"
-
-Segments to translate:
+Segments:
 ---
 {chr(10).join(protected_batch)}
 ---
 
-Translated segments (Exactly {len(batch)} lines):"""
+Translated ({len(batch)} lines):"""
 
                 system_prompt = (
-                    f"You are a professional corporate translator. Your output must contain "
-                    f"exactly {len(batch)} lines, each corresponding to an input segment. "
-                    f"Do not add any conversational text or formatting. "
-                    f"NEVER translate: company names (L&T, L&T Finance, M/s, Pvt Ltd, Ltd., Limited), "
-                    f"regulatory abbreviations (RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, "
-                    f"NEFT, RTGS, UPI, MSME, NBFC), or placeholder tokens (__TERM_N__, __BRACKET_N__)."
+                    f"Professional corporate translator. Output exactly {len(batch)} lines "
+                    f"matching the input count. Never add commentary or formatting. "
+                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim."
                 )
 
                 raw_output, in_tok, out_tok = self._call_bedrock(system_prompt, prompt)

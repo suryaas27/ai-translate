@@ -247,40 +247,26 @@ Translated HTML:"""
                     protected_batch.append(p_seg)
                     batch_term_maps.append(t_map)
 
-                prompt = f"""You are a professional corporate document translator specializing in legal and regulatory filings.
-Translate the following Word document segments into {target_lang_name}.
+                prompt = f"""Translate each text segment to {target_lang_name}.
 
-CRITICAL RULES:
-1. Translate ONLY the text content provided.
-2. Return EXACTLY the same number of lines as input — one translated line per input line.
-3. Separate each translated segment with a single newline (\\n).
-4. DO NOT add any explanations, numeric indices, or markdown formatting.
-5. PRESERVE checkboxes (☑, ☐) and symbols (✓, ✗) exactly as they appear.
+Return EXACTLY {len(batch)} lines — one translation per input segment.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
+- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
+- No explanations, numbering, or markdown.
 
-ABSOLUTE DO-NOT-TRANSLATE LIST — copy these verbatim, NEVER translate them:
-- Company names: L&T, L&T Finance, L&T Finance Limited, L&T Finance Holdings, L&T Housing Finance, M/s, Pvt Ltd, Pvt. Ltd., Ltd., Co., Inc., Corp., Limited
-- Regulatory abbreviations: RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, NEFT, RTGS, UPI, MSME, NPA, NBFC, MOU, LOA, NOC, CIN, DIN, LLPIN, SRN, ROI, IRR, APR, FOIR
-- Placeholder tokens: any token matching __TERM_N__ or __BRACKET_N__ (e.g., __TERM_0__, __BRACKET_2__)
-
-❌ WRONG:  "एल एंड टी फाइनेंस लिमिटेड"  →  ✅ CORRECT: "L&T Finance Limited"
-❌ WRONG:  "आरबीआई"                       →  ✅ CORRECT: "RBI"
-
-Segments to translate:
+Segments:
 ---
 {chr(10).join(protected_batch)}
 ---
 
-Translated segments (Exactly {len(batch)} lines):"""
+Translated ({len(batch)} lines):"""
                 response = self._call_with_retry(
                     model=self.model,
                     max_tokens=4096,
                     system=(
-                        f"You are a professional corporate translator. Your output must contain "
-                        f"exactly {len(batch)} lines, each corresponding to an input segment. "
-                        f"Do not add any conversational text or formatting. "
-                        f"NEVER translate: company names (L&T, L&T Finance, M/s, Pvt Ltd, Ltd., Limited), "
-                        f"regulatory abbreviations (RBI, SEBI, GST, PAN, TDS, EMI, NACH, CIBIL, KYC, "
-                        f"NEFT, RTGS, UPI, MSME, NBFC), or placeholder tokens (__TERM_N__, __BRACKET_N__)."
+                        f"Professional corporate translator. Output exactly {len(batch)} lines "
+                        f"matching the input count. Never add commentary or formatting. "
+                        f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim."
                     ),
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0

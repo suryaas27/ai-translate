@@ -58,31 +58,55 @@ TRANSLATION_FLOW = os.getenv("TRANSLATION_FLOW", "direct")
 print(f"[Startup] Translation flow: {TRANSLATION_FLOW}")
 
 if TRANSLATION_FLOW == "server":
-    # Server flow: route provider codes through enterprise deployments
-    # openai → Azure AI Foundry, anthropic → AWS Bedrock, gemini → Google Vertex AI
+    # Server flow: AWS Bedrock is the default for all providers.
+    # Azure overrides 'openai', Vertex overrides 'gemini' when explicitly configured.
+    # anthropic → AWS Bedrock (always, no fallback to direct)
+    # openai    → Azure AI Foundry if configured, else AWS Bedrock
+    # gemini    → Google Vertex AI if configured, else AWS Bedrock
+    bedrock_instance = None
     try:
-        if os.getenv("AWS_ACCESS_KEY_ID") or os.getenv("AWS_DEFAULT_REGION"):
-            from bedrock_translator import BedrockTranslator
-            translator_registry["anthropic"] = BedrockTranslator()
-            print("DEBUG: Bedrock Translator registered as 'anthropic'")
+        from bedrock_translator import BedrockTranslator
+        bedrock_instance = BedrockTranslator()
+        print("DEBUG: Bedrock Translator initialised (server default)")
     except Exception as e:
-        print(f"WARNING: Bedrock Translator failed: {e}")
+        print(f"WARNING: Bedrock Translator failed to initialise: {e}")
 
+    # anthropic → always Bedrock in server mode
+    if bedrock_instance:
+        translator_registry["anthropic"] = bedrock_instance
+        print("DEBUG: Bedrock registered as 'anthropic'")
+
+    # openai → Azure if credentials present, else Bedrock
     try:
         if os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"):
             from azure_translator import AzureTranslator
             translator_registry["openai"] = AzureTranslator()
-            print("DEBUG: Azure Translator registered as 'openai'")
+            print("DEBUG: Azure Translator registered as 'openai' [SERVER]")
+        elif bedrock_instance:
+            translator_registry["openai"] = bedrock_instance
+            print("DEBUG: Bedrock registered as 'openai' (no Azure credentials) [SERVER]")
     except Exception as e:
-        print(f"WARNING: Azure Translator failed: {e}")
+        print(f"WARNING: openai provider (Azure/Bedrock) failed: {e}")
 
+    # gemini → Vertex if credentials present, else Bedrock
     try:
         if os.getenv("VERTEX_PROJECT"):
             from vertex_translator import VertexTranslator
             translator_registry["gemini"] = VertexTranslator()
-            print("DEBUG: Vertex Translator registered as 'gemini'")
+            print("DEBUG: Vertex Translator registered as 'gemini' [SERVER]")
+        elif bedrock_instance:
+            translator_registry["gemini"] = bedrock_instance
+            print("DEBUG: Bedrock registered as 'gemini' (no Vertex credentials) [SERVER]")
     except Exception as e:
-        print(f"WARNING: Vertex Translator failed: {e}")
+        print(f"WARNING: gemini provider (Vertex/Bedrock) failed: {e}")
+
+    # Sarvam is direct-only; always register if key present
+    try:
+        if os.getenv("SARVAM_API_KEY"):
+            translator_registry["sarvam"] = SarvamTranslator()
+            print("DEBUG: Sarvam Translator registered")
+    except Exception as e:
+        print(f"WARNING: Sarvam Translator failed: {e}")
 
 else:
     # Direct flow (default): use public LLM APIs directly
@@ -113,6 +137,12 @@ else:
             print("DEBUG: Anthropic Translator registered")
     except Exception as e:
         print(f"WARNING: Anthropic Translator failed: {e}")
+
+_SERVER_TRANSLATORS = {"BedrockTranslator", "AzureTranslator", "VertexTranslator"}
+
+def _flow_label(provider_instance) -> str:
+    cls = type(provider_instance).__name__
+    return "SERVER" if cls in _SERVER_TRANSLATORS else "LOCAL"
 
 # Initialize Reviewers
 try:
@@ -321,7 +351,25 @@ HTML to review:
 
 Corrected HTML:"""
 
-    # Try OpenAI first
+    # Server flow: use Bedrock (registered as "anthropic") for review
+    if TRANSLATION_FLOW == "server":
+        provider = translator_registry.get("anthropic")
+        if provider and hasattr(provider, "_call_bedrock"):
+            try:
+                reviewed = await asyncio.to_thread(provider._call_bedrock, system_msg, prompt)
+                if reviewed.startswith("```"):
+                    lines = reviewed.split('\n')
+                    if len(lines) > 2:
+                        reviewed = '\n'.join(lines[1:-1])
+                reviewed = _restore_after_review(reviewed, term_map)
+                print(f"[AutoReview] Bedrock ({type(provider).__name__}) review pass completed [SERVER]")
+                return reviewed
+            except Exception as e:
+                print(f"[AutoReview] Bedrock failed: {e}")
+        print("[AutoReview] No reviewer available, skipping")
+        return html
+
+    # Direct flow: Try OpenAI first
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         try:
@@ -341,7 +389,7 @@ Corrected HTML:"""
                 if len(lines) > 2:
                     reviewed = '\n'.join(lines[1:-1])
             reviewed = _restore_after_review(reviewed, term_map)
-            print("[AutoReview] OpenAI review pass completed")
+            print("[AutoReview] OpenAI review pass completed [LOCAL]")
             return reviewed
         except Exception as e:
             print(f"[AutoReview] OpenAI failed, trying Anthropic: {e}")
@@ -364,7 +412,7 @@ Corrected HTML:"""
                 if len(lines) > 2:
                     reviewed = '\n'.join(lines[1:-1])
             reviewed = _restore_after_review(reviewed, term_map)
-            print("[AutoReview] Anthropic review pass completed")
+            print("[AutoReview] Anthropic review pass completed [LOCAL]")
             return reviewed
         except Exception as e:
             print(f"[AutoReview] Anthropic failed: {e}")
@@ -425,7 +473,7 @@ async def _do_translate_docx_llm(content: bytes, target_language: str, llm_provi
             raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
         _t_start = _time.time()
-        print(f"[DOCX-LLM] Starting translation via {llm_provider} → {target_lang_code}")
+        print(f"[DOCX-LLM] Starting translation via {llm_provider} ({type(provider).__name__}) → {target_lang_code} [{_flow_label(provider)}]")
         provider.translate_docx(input_path, target_lang_code, output_path)
         print(f"[DOCX-LLM] Done in {_time.time()-_t_start:.1f}s")
 
@@ -435,8 +483,8 @@ async def _do_translate_docx_llm(content: bytes, target_language: str, llm_provi
             translated_fileobj = io.BytesIO(translated_content)
             translated_html = convert_docx_stream_to_html(translated_fileobj)
 
-        # Auto-review: fix any missed English text
-        translated_html = await _auto_review_translation(translated_html, target_language)
+        # Auto-review disabled
+        # translated_html = await _auto_review_translation(translated_html, target_language)
 
         translated_pdf_b64 = None
         try:
@@ -504,7 +552,7 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
         raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
     full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
-    print(f"[PDF-LLM] Translating all {len(pages)} pages in one call via {llm_provider}")
+    print(f"[PDF-LLM] Translating all {len(pages)} pages in one call via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
     try:
         result = await asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
         body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
@@ -515,8 +563,8 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
 
     translated_html = _HTML_HEADER + translated_body + '</body></html>'
 
-    # Auto-review: fix any missed English text
-    translated_html = await _auto_review_translation(translated_html, target_lang_code)
+    # Auto-review disabled
+    # translated_html = await _auto_review_translation(translated_html, target_lang_code)
 
     translated_pdf_b64 = None
     try:
@@ -546,6 +594,7 @@ def get_config():
     return {
         "translation_flow": TRANSLATION_FLOW,
         "available_providers": list(translator_registry.keys()),
+        "provider_classes": {k: type(v).__name__ for k, v in translator_registry.items()},
     }
 
 
@@ -629,7 +678,7 @@ async def translate_pdf_llm_stream(
 
     async def event_gen():
         full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
-        print(f"[PDF-Stream] Translating all {len(pages)} pages in one call via {llm_provider}")
+        print(f"[PDF-Stream] Translating all {len(pages)} pages in one call via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
 
         # Run translation in a thread; send SSE keep-alive pings every 5s
         # so the browser never drops the connection during long API calls
