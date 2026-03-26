@@ -74,7 +74,8 @@ class BedrockTranslator(BaseTranslator):
             text = text.replace(token, original)
         return text
 
-    def _call_bedrock(self, system_prompt: str, user_message: str) -> str:
+    def _call_bedrock(self, system_prompt: str, user_message: str) -> Tuple[str, int, int]:
+        """Returns (output_text, input_tokens, output_tokens)."""
         for attempt in range(self.max_retries):
             try:
                 response = self.client.converse(
@@ -86,7 +87,10 @@ class BedrockTranslator(BaseTranslator):
                 output = response["output"]["message"]["content"][0]["text"]
                 if response.get("stopReason") == "max_tokens":
                     print(f"[Bedrock] Warning: hit max_tokens ({self.max_tokens}), output may be truncated")
-                return output
+                usage = response.get("usage", {})
+                input_tokens = usage.get("inputTokens", 0)
+                output_tokens = usage.get("outputTokens", 0)
+                return output, input_tokens, output_tokens
             except botocore.exceptions.ClientError as e:
                 code = e.response["Error"]["Code"]
                 if code in ("ThrottlingException", "ServiceUnavailableException") and attempt < self.max_retries - 1:
@@ -175,7 +179,7 @@ Translated HTML:"""
             "must NEVER be translated — copy them verbatim into the output."
         )
 
-        translated_html = self._call_bedrock(system_prompt, prompt)
+        translated_html, input_tokens, output_tokens = self._call_bedrock(system_prompt, prompt)
 
         if translated_html.startswith("```"):
             lines = translated_html.split('\n')
@@ -185,6 +189,8 @@ Translated HTML:"""
                 translated_html = '\n'.join(lines[start_idx:end_idx]).strip()
 
         translated_html = self._restore_terms(translated_html, term_map)
+
+        print(f"[Bedrock] Token usage — input: {input_tokens:,}, output: {output_tokens:,}, total: {input_tokens + output_tokens:,}")
 
         return {"translated_html": translated_html, "language": target_language}
 
@@ -265,7 +271,7 @@ Translated segments (Exactly {len(batch)} lines):"""
                     f"NEFT, RTGS, UPI, MSME, NBFC), or placeholder tokens (__TERM_N__, __BRACKET_N__)."
                 )
 
-                raw_output = self._call_bedrock(system_prompt, prompt)
+                raw_output, in_tok, out_tok = self._call_bedrock(system_prompt, prompt)
                 if raw_output.startswith("```"):
                     lines = raw_output.split('\n')
                     if len(lines) > 2:
@@ -278,14 +284,20 @@ Translated segments (Exactly {len(batch)} lines):"""
                         translated_seg = self._restore_terms(translated_seg, batch_term_maps[idx])
                     batch_translated.append(translated_seg)
 
-                return dict(zip(batch, batch_translated))
+                return dict(zip(batch, batch_translated)), in_tok, out_tok
             except Exception as e:
                 print(f"[Bedrock] Batch translation failed, keeping originals: {e}")
-                return {seg: seg for seg in batch}
+                return {seg: seg for seg in batch}, 0, 0
 
+        doc_name = os.path.basename(docx_path)
+        total_input_tokens = 0
+        total_output_tokens = 0
         translated_map = {}
         for batch in batches:
-            translated_map.update(_translate_batch(batch))
+            batch_result, in_tok, out_tok = _translate_batch(batch)
+            translated_map.update(batch_result)
+            total_input_tokens += in_tok
+            total_output_tokens += out_tok
 
         from docx.oxml.ns import qn
 
@@ -345,5 +357,10 @@ Translated segments (Exactly {len(batch)} lines):"""
                 if obj:
                     apply_to_container(obj)
 
+        print(
+            f"[Bedrock] [{doc_name}] Token usage — "
+            f"input: {total_input_tokens:,}, output: {total_output_tokens:,}, "
+            f"total: {total_input_tokens + total_output_tokens:,}"
+        )
         doc.save(output_path)
         return output_path
