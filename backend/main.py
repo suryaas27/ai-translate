@@ -539,20 +539,53 @@ _HTML_HEADER = (
 
 
 async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provider: str) -> dict:
-    """Translate PDF via LLM in a single call (all pages at once)."""
+    """Translate PDF via LLM.
+
+    If the provider has a native translate_pdf() method (direct text extraction +
+    batch LLM translation, like the DOCX approach), use that.
+    Otherwise fall back to the HTML-based approach.
+    """
     import re as _re
+    import tempfile, os as _os
 
     target_lang_code = 'hi' if target_language.lower() == 'rajasthani' else target_language
-
-    pages = extract_pdf_pages_html(content)
     original_html = extract_pdf_to_html(content)
 
     provider = translator_registry.get(llm_provider)
     if not provider:
         raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
+    # --- Native PDF path (preferred) ---
+    if hasattr(provider, 'translate_pdf'):
+        tmp_in = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+        tmp_in.write(content)
+        tmp_in.close()
+        tmp_out_path = tmp_in.name.replace('.pdf', '_translated.pdf')
+        try:
+            print(f"[PDF-LLM] Native PDF translation via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
+            await asyncio.to_thread(provider.translate_pdf, tmp_in.name, target_lang_code, tmp_out_path)
+            with open(tmp_out_path, 'rb') as f:
+                translated_pdf_bytes = f.read()
+            translated_pdf_b64 = base64.b64encode(translated_pdf_bytes).decode('utf-8')
+            translated_html = extract_pdf_to_html(translated_pdf_bytes)
+        finally:
+            _os.unlink(tmp_in.name)
+            if _os.path.exists(tmp_out_path):
+                _os.unlink(tmp_out_path)
+
+        return {
+            "html": translated_html,
+            "original_html": original_html,
+            "language": target_language,
+            "provider": llm_provider,
+            "translated_docx_b64": None,
+            "translated_pdf_b64": translated_pdf_b64,
+        }
+
+    # --- HTML fallback path ---
+    pages = extract_pdf_pages_html(content)
     full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
-    print(f"[PDF-LLM] Translating all {len(pages)} pages in one call via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
+    print(f"[PDF-LLM] HTML-based translation via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
     try:
         result = await asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
         body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
@@ -579,7 +612,7 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
         "language": target_language,
         "provider": llm_provider,
         "translated_docx_b64": None,
-        "translated_pdf_b64": translated_pdf_b64
+        "translated_pdf_b64": translated_pdf_b64,
     }
 
 

@@ -18,6 +18,7 @@ echo ""
 
 deploy_backend() {
   echo "--- Backend: building & deploying ($BACKEND_SERVICE) ---"
+
   gcloud run deploy "$BACKEND_SERVICE" \
     --source "$ROOT_DIR/backend" \
     --project "$PROJECT_ID" \
@@ -26,7 +27,9 @@ deploy_backend() {
     --memory 2Gi \
     --cpu 2 \
     --timeout 300 \
-    --concurrency 10
+    --concurrency 10 \
+    --set-env-vars "^|^GCS_BUCKET_NAME=ops-e-stamp-store\
+
   echo "Backend deployed."
 }
 

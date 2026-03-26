@@ -358,3 +358,218 @@ Translated ({len(batch)} lines):"""
         )
         doc.save(output_path)
         return output_path
+
+    def translate_pdf(self, pdf_path: str, target_language: str, output_path: str) -> str:
+        """
+        Translate PDF natively using PyMuPDF:
+          1. Extract text at LINE level (per visual line, preserving layout)
+          2. Batch translate plain text via Bedrock (same prompt as translate_docx)
+          3. Redact original lines and insert translated text at same positions
+        """
+        import fitz  # pymupdf
+        import os
+
+        doc = fitz.open(pdf_path)
+        target_lang_name = self.LANGUAGE_NAMES.get(target_language.lower(), target_language)
+
+        # Look up a bundled font file for scripts that need non-Latin glyphs
+        _font_map = {
+            'hi': 'AnekDevanagari-Regular.ttf',
+            'rajasthani': 'AnekDevanagari-Regular.ttf',
+            'mr': 'AnekDevanagari-Regular.ttf',
+            'te': 'NotoSansTelugu-Regular.ttf',
+            'ta': 'NotoSansTamil-Regular.ttf',
+            'kn': 'NotoSansKannada-Regular.ttf',
+            'ml': 'NotoSansMalayalam-Regular.ttf',
+            'gu': 'NotoSansGujarati-Regular.ttf',
+            'bn': 'NotoSansBengali-Regular.ttf',
+            'pa': 'NotoSansGurmukhi-Regular.ttf',
+            'or': 'NotoSansOriya-Regular.ttf',
+            'as': 'NotoSansBengali-Regular.ttf',
+        }
+        fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        font_filename = _font_map.get(target_language.lower())
+        font_path = None
+        if font_filename:
+            candidate = os.path.join(fonts_dir, font_filename)
+            if os.path.exists(candidate):
+                font_path = candidate
+            else:
+                print(f"[Bedrock-PDF] Font file not found: {candidate} — using fallback")
+
+        # ------------------------------------------------------------------
+        # 1. Collect unique line-level text blocks across all pages
+        # ------------------------------------------------------------------
+        # Key: stripped line text  →  Value: list of {page_no, bbox, spans, origin, fontsize, color}
+        line_occurrences: Dict[str, list] = {}
+
+        for page_no, page in enumerate(doc):
+            raw = page.get_text("dict", flags=0)
+            for block in raw.get("blocks", []):
+                if block.get("type") != 0:
+                    continue  # skip image blocks
+                for line in block.get("lines", []):
+                    spans = line.get("spans", [])
+                    if not spans:
+                        continue
+                    # Concatenate all spans in the line → full line text
+                    line_text = "".join(s["text"] for s in spans)
+                    for char, mapped in self.wingdings_map.items():
+                        line_text = line_text.replace(char, mapped)
+                    line_text = line_text.strip()
+                    if not line_text:
+                        continue
+
+                    # Bounding box that covers the whole line
+                    line_bbox = fitz.Rect(line["bbox"])
+                    # Use origin of first span for text insertion
+                    first_span = spans[0]
+                    origin = fitz.Point(first_span["origin"])
+                    fontsize = first_span.get("size", 11)
+                    color_int = first_span.get("color", 0)
+                    # Convert integer color → (r, g, b) floats
+                    color = (
+                        ((color_int >> 16) & 0xFF) / 255.0,
+                        ((color_int >> 8) & 0xFF) / 255.0,
+                        (color_int & 0xFF) / 255.0,
+                    )
+
+                    occ = {
+                        "page_no": page_no,
+                        "line_bbox": line_bbox,
+                        "origin": origin,
+                        "fontsize": fontsize,
+                        "color": color,
+                    }
+                    line_occurrences.setdefault(line_text, []).append(occ)
+
+        all_lines = list(line_occurrences.keys())
+        if not all_lines:
+            doc.save(output_path)
+            doc.close()
+            return output_path
+
+        # ------------------------------------------------------------------
+        # 2. Batch translate (same prompt as translate_docx)
+        # ------------------------------------------------------------------
+        batch_size = 20
+        batches = [all_lines[i:i + batch_size] for i in range(0, len(all_lines), batch_size)]
+
+        def _translate_batch(batch):
+            try:
+                protected_batch, batch_term_maps = [], []
+                for seg in batch:
+                    p, tm = self._protect_terms(seg)
+                    protected_batch.append(p)
+                    batch_term_maps.append(tm)
+
+                prompt = f"""Translate each text segment to {target_lang_name}.
+
+Return EXACTLY {len(batch)} lines — one translation per input segment.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, never translate.
+- Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
+- No explanations, numbering, or markdown.
+
+Segments:
+---
+{chr(10).join(protected_batch)}
+---
+
+Translated ({len(batch)} lines):"""
+
+                system_prompt = (
+                    f"Professional corporate translator. Output exactly {len(batch)} lines "
+                    f"matching the input count. Never add commentary or formatting. "
+                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim."
+                )
+
+                raw_output = self._call_bedrock(system_prompt, prompt)
+                if raw_output.startswith("```"):
+                    lines_out = raw_output.split('\n')
+                    if len(lines_out) > 2:
+                        raw_output = '\n'.join(lines_out[1:-1]).strip()
+                batch_translated_raw = [t.strip() for t in raw_output.split('\n') if t.strip()]
+                batch_translated = []
+                for idx, translated_seg in enumerate(batch_translated_raw):
+                    if idx < len(batch_term_maps):
+                        translated_seg = self._restore_terms(translated_seg, batch_term_maps[idx])
+                    batch_translated.append(translated_seg)
+                return dict(zip(batch, batch_translated))
+            except Exception as e:
+                print(f"[Bedrock-PDF] Batch translation failed, keeping originals: {e}")
+                return {seg: seg for seg in batch}
+
+        translated_map: Dict[str, str] = {}
+        for batch in batches:
+            translated_map.update(_translate_batch(batch))
+
+        print(f"[Bedrock-PDF] Translated {len(translated_map)} unique line segments")
+
+        # ------------------------------------------------------------------
+        # 3. Apply translations page by page
+        # ------------------------------------------------------------------
+        for page_no, page in enumerate(doc):
+            raw = page.get_text("dict", flags=0)
+
+            # Collect redactions for this page
+            page_redactions = []
+            for block in raw.get("blocks", []):
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    spans = line.get("spans", [])
+                    if not spans:
+                        continue
+                    line_text = "".join(s["text"] for s in spans)
+                    for char, mapped in self.wingdings_map.items():
+                        line_text = line_text.replace(char, mapped)
+                    line_text = line_text.strip()
+                    if line_text not in translated_map:
+                        continue
+                    translated_text = translated_map[line_text]
+                    if translated_text == line_text:
+                        continue  # unchanged, no need to redact
+
+                    first_span = spans[0]
+                    page_redactions.append({
+                        "line_bbox": fitz.Rect(line["bbox"]),
+                        "origin": fitz.Point(first_span["origin"]),
+                        "fontsize": first_span.get("size", 11),
+                        "color": (
+                            ((first_span.get("color", 0) >> 16) & 0xFF) / 255.0,
+                            ((first_span.get("color", 0) >> 8) & 0xFF) / 255.0,
+                            (first_span.get("color", 0) & 0xFF) / 255.0,
+                        ),
+                        "translated": translated_text,
+                    })
+
+            if not page_redactions:
+                continue
+
+            # Erase original text (white fill, keep images untouched)
+            for r in page_redactions:
+                page.add_redact_annot(r["line_bbox"], fill=(1, 1, 1))
+            page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE)
+
+            # Insert translated text at same baseline origin
+            for r in page_redactions:
+                try:
+                    kwargs = {
+                        "point": r["origin"],
+                        "text": r["translated"],
+                        "fontsize": r["fontsize"],
+                        "color": r["color"],
+                    }
+                    if font_path:
+                        kwargs["fontfile"] = font_path
+                        kwargs["fontname"] = "custom"
+                    else:
+                        kwargs["fontname"] = "helv"
+                    page.insert_text(**kwargs)
+                except Exception as e:
+                    print(f"[Bedrock-PDF] insert_text failed: {e}")
+
+        doc.save(output_path, garbage=4, deflate=True)
+        doc.close()
+        print(f"[Bedrock-PDF] Saved translated PDF → {output_path}")
+        return output_path
