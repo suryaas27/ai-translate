@@ -539,12 +539,7 @@ _HTML_HEADER = (
 
 
 async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provider: str) -> dict:
-    """Translate PDF via LLM.
-
-    If the provider has a native translate_pdf() method (direct text extraction +
-    batch LLM translation, like the DOCX approach), use that.
-    Otherwise fall back to the HTML-based approach.
-    """
+    """Translate PDF via LLM using in-place PyMuPDF text replacement."""
     import re as _re
     import tempfile, os as _os
 
@@ -555,14 +550,14 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
     if not provider:
         raise HTTPException(status_code=503, detail=f"Translator '{llm_provider}' not configured")
 
-    # --- Native PDF path (preferred) ---
     if hasattr(provider, 'translate_pdf'):
         tmp_in = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
         tmp_in.write(content)
         tmp_in.close()
         tmp_out_path = tmp_in.name.replace('.pdf', '_translated.pdf')
+        translated_html = original_html
         try:
-            print(f"[PDF-LLM] Native PDF translation via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
+            print(f"[PDF-LLM] Translating PDF via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
             await asyncio.to_thread(provider.translate_pdf, tmp_in.name, target_lang_code, tmp_out_path)
             with open(tmp_out_path, 'rb') as f:
                 translated_pdf_bytes = f.read()
@@ -572,7 +567,6 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
             _os.unlink(tmp_in.name)
             if _os.path.exists(tmp_out_path):
                 _os.unlink(tmp_out_path)
-
         return {
             "html": translated_html,
             "original_html": original_html,
@@ -582,10 +576,10 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
             "translated_pdf_b64": translated_pdf_b64,
         }
 
-    # --- HTML fallback path ---
+    # Fallback: HTML-based approach for providers without translate_pdf
     pages = extract_pdf_pages_html(content)
     full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
-    print(f"[PDF-LLM] HTML-based translation via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
+    print(f"[PDF-LLM] HTML fallback via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
     try:
         result = await asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
         body_match = _re.search(r'<body[^>]*>([\s\S]*?)</body>', result["translated_html"], _re.IGNORECASE)
@@ -595,9 +589,6 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
         translated_body = ''.join(pages)
 
     translated_html = _HTML_HEADER + translated_body + '</body></html>'
-
-    # Auto-review disabled
-    # translated_html = await _auto_review_translation(translated_html, target_lang_code)
 
     translated_pdf_b64 = None
     try:
@@ -711,14 +702,17 @@ async def translate_pdf_llm_stream(
     import tempfile, os as _os
 
     async def event_gen():
-        print(f"[PDF-Stream] Translating all {len(pages)} pages via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
+        print(f"[PDF-Stream] Translating PDF via {llm_provider} ({type(provider).__name__}) [{_flow_label(provider)}]")
 
-        # --- Native PDF path (batch plain-text, no token blowout) ---
+        full_html = original_html
+        translated_pdf_b64 = None
+
         if hasattr(provider, 'translate_pdf'):
             tmp_in = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
             tmp_in.write(content)
             tmp_in.close()
             tmp_out_path = tmp_in.name.replace('.pdf', '_translated.pdf')
+
             try:
                 task = asyncio.ensure_future(
                     asyncio.to_thread(provider.translate_pdf, tmp_in.name, target_lang_code, tmp_out_path)
@@ -729,14 +723,15 @@ async def translate_pdf_llm_stream(
                         await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
                     except asyncio.TimeoutError:
                         pass
-
                 task.result()  # re-raise any exception
+
                 with open(tmp_out_path, 'rb') as f:
                     translated_pdf_bytes = f.read()
                 translated_pdf_b64 = base64.b64encode(translated_pdf_bytes).decode('utf-8')
                 full_html = extract_pdf_to_html(translated_pdf_bytes)
+
             except Exception as e:
-                print(f"[PDF-Stream] Native PDF translation failed ({e}), keeping original")
+                print(f"[PDF-Stream] Translation failed ({e}), keeping original")
                 full_html = original_html
                 translated_pdf_b64 = None
             finally:
@@ -745,7 +740,7 @@ async def translate_pdf_llm_stream(
                     _os.unlink(tmp_out_path)
 
         else:
-            # --- HTML fallback (large token usage — avoid for big PDFs) ---
+            # HTML fallback for providers without translate_pdf
             full_input_html = _HTML_HEADER + ''.join(pages) + '</body></html>'
             task = asyncio.ensure_future(
                 asyncio.to_thread(provider.translate_html, full_input_html, target_lang_code)
@@ -766,12 +761,11 @@ async def translate_pdf_llm_stream(
                 translated_body = ''.join(pages)
 
             full_html = _HTML_HEADER + translated_body + '</body></html>'
-            translated_pdf_b64 = None
             try:
                 pdf_io = html_to_pdf(full_html)
                 translated_pdf_b64 = base64.b64encode(pdf_io.getvalue()).decode('utf-8')
             except Exception as pdf_err:
-                print(f"Warning: PDF generation failed: {pdf_err}")
+                print(f"[PDF-Stream] PDF generation failed: {pdf_err}")
 
         done_payload = json.dumps({
             "type": "done",
