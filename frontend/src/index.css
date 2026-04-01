@@ -7,7 +7,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f3f4f6;
+  background-color: var(--color-bg, #f3f4f6);
 }
 
 code {
@@ -29,4 +29,46 @@ code {
 
 .animate-fade-in {
   animation: fadeIn 0.5s ease-out forwards;
+}
+
+/* ─── White-label theme utilities ──────────────────────────────────────────── */
+/* Use these instead of hardcoded Tailwind color classes for brand colors.      */
+
+.btn-primary {
+  background-color: var(--color-primary, #7c3aed);
+  color: white;
+  transition: filter 0.15s ease;
+}
+
+.btn-primary:hover {
+  filter: brightness(0.9);
+}
+
+.btn-primary:focus {
+  outline: 2px solid var(--color-primary, #7c3aed);
+  outline-offset: 2px;
+}
+
+/* Gradient brand text — replaces "from-purple-600 to-cyan-500" */
+.gradient-brand {
+  background: linear-gradient(to right, var(--color-primary, #7c3aed), var(--color-secondary, #06b6d4));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Gradient brand background — for login header, etc. */
+.gradient-brand-bg {
+  background: linear-gradient(to right, var(--color-primary, #7c3aed), var(--color-secondary, #06b6d4));
+}
+
+/* Feature tab active state */
+.feature-tab-active {
+  color: var(--color-primary, #7c3aed);
+  border-bottom: 2px solid var(--color-primary, #7c3aed);
+}
+
+/* Focus ring using brand color */
+.ring-brand:focus {
+  --tw-ring-color: var(--color-primary, #7c3aed);
 }

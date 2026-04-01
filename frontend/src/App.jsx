@@ -1,12 +1,37 @@
 import { useState, useEffect } from 'react';
-import DocTranslation from './components/DocTranslation';
+import { ThemeProvider, useTheme } from './theme/ThemeProvider';
+import { CUSTOMER_CONFIG } from './customer.config';
 import Login from './components/Login';
-import doqfyLogo from './assets/doqfy-logo.png';
+import TranslationApp from './features/translation/TranslationApp';
+import TransliterationApp from './features/transliteration/TransliterationApp';
+import ComparisonApp from './features/comparison/ComparisonApp';
+import SummaryApp from './features/summary/SummaryApp';
+import InteractApp from './features/interact/InteractApp';
+import ExtractApp from './features/extract/ExtractApp';
 
-function App() {
+const FEATURE_MAP = {
+  translation:     TranslationApp,
+  transliteration: TransliterationApp,
+  comparison:      ComparisonApp,
+  summary:         SummaryApp,
+  interact:        InteractApp,
+  extract:         ExtractApp,
+};
+
+const FEATURE_LABELS = {
+  translation:     'Translate',
+  transliteration: 'Transliterate',
+  comparison:      'Compare',
+  summary:         'Summary',
+  interact:        'Interact',
+  extract:         'Extract',
+};
+
+function AppShell() {
+  const { brandName, tagline, enabledFeatures } = useTheme();
   const [user, setUser] = useState(null);
+  const [activeFeature, setActiveFeature] = useState(enabledFeatures[0] || 'translation');
 
-  // Restore session from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem('ai_translate_user');
     if (saved) {
@@ -18,9 +43,7 @@ function App() {
     }
   }, []);
 
-  const handleLogin = (session) => {
-    setUser(session);
-  };
+  const handleLogin = (session) => setUser(session);
 
   const handleLogout = () => {
     localStorage.removeItem('ai_translate_user');
@@ -31,39 +54,93 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
-  return (
-    <div className="min-h-screen bg-gray-100 font-sans text-gray-900">
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
-          <img src={doqfyLogo} alt="Doqfy" className="w-10 h-10" />
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-cyan-500">DoqfAI</span> Translate
-          </h1>
-          <span className="text-sm text-gray-500">Document Translation for Indic Languages</span>
+  const ActiveComponent = FEATURE_MAP[activeFeature] || TranslationApp;
+  const showTabs = enabledFeatures.length > 1;
 
-          {/* User info + logout */}
+  return (
+    <div className="min-h-screen font-sans" style={{ backgroundColor: "var(--color-bg)", color: "var(--color-textPrimary)" }}>
+      <header className="sticky top-0 z-10 shadow-sm" style={{ backgroundColor: "var(--color-surface)" }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
+          <img src={CUSTOMER_CONFIG.logoUrl} alt={brandName} className="w-10 h-10" />
+          <h1 className="text-xl font-bold tracking-tight">
+            <span className="gradient-brand">{brandName}</span>
+          </h1>
+          {tagline && (
+            <span className="text-sm hidden sm:block" style={{ color: "var(--color-textSecondary)" }}>
+              {tagline}
+            </span>
+          )}
+
+          {showTabs && (
+            <nav className="flex gap-1 ml-4 hidden sm:flex">
+              {enabledFeatures.map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setActiveFeature(f)}
+                  className="px-3 py-1.5 text-sm rounded-md font-medium transition"
+                  style={
+                    activeFeature === f
+                      ? { backgroundColor: "var(--color-primary)", color: "white" }
+                      : { color: "var(--color-textSecondary)" }
+                  }
+                >
+                  {FEATURE_LABELS[f] || f}
+                </button>
+              ))}
+            </nav>
+          )}
+
           <div className="ml-auto flex items-center gap-3">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-gray-700">{user.username}</p>
-              <p className="text-xs text-gray-400">{user.company}</p>
+              <p className="text-sm font-medium" style={{ color: "var(--color-textPrimary)" }}>{user.username}</p>
+              <p className="text-xs" style={{ color: "var(--color-textSecondary)" }}>{user.company}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition px-3 py-1.5 rounded-lg hover:bg-red-50"
+              className="flex items-center gap-1.5 text-sm transition px-3 py-1.5 rounded-lg hover:bg-red-50 hover:text-red-600"
+              style={{ color: "var(--color-textSecondary)" }}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
               Logout
             </button>
           </div>
         </div>
+
+        {showTabs && (
+          <div className="sm:hidden border-t border-gray-100 flex overflow-x-auto">
+            {enabledFeatures.map((f) => (
+              <button
+                key={f}
+                onClick={() => setActiveFeature(f)}
+                className="flex-shrink-0 px-4 py-2 text-sm font-medium border-b-2 transition"
+                style={
+                  activeFeature === f
+                    ? { color: "var(--color-primary)", borderColor: "var(--color-primary)" }
+                    : { color: "var(--color-textSecondary)", borderColor: "transparent" }
+                }
+              >
+                {FEATURE_LABELS[f] || f}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <DocTranslation />
+        <ActiveComponent />
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider customer={CUSTOMER_CONFIG.customerId} config={CUSTOMER_CONFIG}>
+      <AppShell />
+    </ThemeProvider>
   );
 }
 

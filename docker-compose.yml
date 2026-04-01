@@ -1,0 +1,77 @@
+# Local development: runs all 6 backend feature services
+# Frontend runs separately with: cd frontend && npm run dev
+#
+# Usage:
+#   docker-compose up                  ← all backends
+#   docker-compose up translation      ← single feature
+#   docker-compose up translation transliteration
+#   docker-compose logs -f translation ← tail logs
+#   docker-compose down
+
+services:
+
+  translation:
+    build:
+      context: ./backend
+      dockerfile: translation/Dockerfile
+    ports:
+      - "8001:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080
+
+  transliteration:
+    build:
+      context: ./backend
+      dockerfile: transliteration/Dockerfile
+    ports:
+      - "8002:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080
+
+  comparison:
+    build:
+      context: ./backend
+      dockerfile: comparison/Dockerfile
+    ports:
+      - "8003:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080
+
+  summary:
+    build:
+      context: ./backend
+      dockerfile: summary/Dockerfile
+    ports:
+      - "8004:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080
+
+  interact:
+    build:
+      context: ./backend
+      dockerfile: interact/Dockerfile
+    ports:
+      - "8005:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080
+
+  extract:
+    build:
+      context: ./backend
+      dockerfile: extract/Dockerfile
+    ports:
+      - "8006:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PORT=8080

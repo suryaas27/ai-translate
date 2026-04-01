@@ -1,0 +1,65 @@
+{
+  "common": {
+    "logout": "Logout",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "comingSoon": "Coming Soon"
+  },
+  "login": {
+    "title": "Welcome back",
+    "subtitle": "Sign in to access AI Translate",
+    "usernameLabel": "Username",
+    "passwordLabel": "Password",
+    "companyLabel": "Company",
+    "submitButton": "Sign In",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
+  },
+  "nav": {
+    "translation": "Translation",
+    "transliteration": "Transliteration",
+    "comparison": "Comparison",
+    "summary": "Summary",
+    "interact": "Interact",
+    "extract": "Extract"
+  },
+  "translation": {
+    "pageTitle": "Document Translation",
+    "uploadLabel": "Upload Document",
+    "uploadHint": "Drag & drop or click to upload a PDF or DOCX file",
+    "translateButton": "Translate",
+    "translating": "Translating...",
+    "downloadDocx": "Download Word",
+    "downloadPdf": "Download PDF",
+    "downloadHtml": "Download HTML",
+    "evaluate": "Evaluate",
+    "editMode": "Edit",
+    "saveCorrection": "Save Correction",
+    "targetLanguage": "Target Language"
+  },
+  "transliteration": {
+    "pageTitle": "Document Transliteration",
+    "description": "Convert document scripts without changing meaning.",
+    "comingSoon": "Transliteration coming soon"
+  },
+  "comparison": {
+    "pageTitle": "Document Comparison",
+    "description": "Compare two documents side-by-side.",
+    "comingSoon": "Comparison coming soon"
+  },
+  "summary": {
+    "pageTitle": "Document Summary",
+    "description": "Generate AI-powered summaries.",
+    "comingSoon": "Summarization coming soon"
+  },
+  "interact": {
+    "pageTitle": "Interact with Document",
+    "description": "Ask questions about your document.",
+    "comingSoon": "Document Q&A coming soon"
+  },
+  "extract": {
+    "pageTitle": "Extract Data",
+    "description": "Extract structured fields from documents.",
+    "comingSoon": "Data extraction coming soon"
+  }
+}

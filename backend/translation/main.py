@@ -1,10 +1,12 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(__file__))
+
 import asyncio
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-import os
 import uuid
 import json
 import tempfile
@@ -58,11 +60,6 @@ TRANSLATION_FLOW = os.getenv("TRANSLATION_FLOW", "direct")
 print(f"[Startup] Translation flow: {TRANSLATION_FLOW}")
 
 if TRANSLATION_FLOW == "server":
-    # Server flow: AWS Bedrock is the default for all providers.
-    # Azure overrides 'openai', Vertex overrides 'gemini' when explicitly configured.
-    # anthropic → AWS Bedrock (always, no fallback to direct)
-    # openai    → Azure AI Foundry if configured, else AWS Bedrock
-    # gemini    → Google Vertex AI if configured, else AWS Bedrock
     bedrock_instance = None
     try:
         from bedrock_translator import BedrockTranslator
@@ -71,12 +68,10 @@ if TRANSLATION_FLOW == "server":
     except Exception as e:
         print(f"WARNING: Bedrock Translator failed to initialise: {e}")
 
-    # anthropic → always Bedrock in server mode
     if bedrock_instance:
         translator_registry["anthropic"] = bedrock_instance
         print("DEBUG: Bedrock registered as 'anthropic'")
 
-    # openai → Azure if credentials present, else Bedrock
     try:
         if os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"):
             from azure_translator import AzureTranslator
@@ -88,7 +83,6 @@ if TRANSLATION_FLOW == "server":
     except Exception as e:
         print(f"WARNING: openai provider (Azure/Bedrock) failed: {e}")
 
-    # gemini → Vertex if credentials present, else Bedrock
     try:
         if os.getenv("VERTEX_PROJECT"):
             from vertex_translator import VertexTranslator
@@ -100,7 +94,6 @@ if TRANSLATION_FLOW == "server":
     except Exception as e:
         print(f"WARNING: gemini provider (Vertex/Bedrock) failed: {e}")
 
-    # Sarvam is direct-only; always register if key present
     try:
         if os.getenv("SARVAM_API_KEY"):
             translator_registry["sarvam"] = SarvamTranslator()
@@ -109,7 +102,6 @@ if TRANSLATION_FLOW == "server":
         print(f"WARNING: Sarvam Translator failed: {e}")
 
 else:
-    # Direct flow (default): use public LLM APIs directly
     try:
         if os.getenv("GEMINI_API_KEY"):
             translator_registry["gemini"] = GeminiTranslator()
@@ -171,15 +163,13 @@ class EvaluationRequest(BaseModel):
 class TranslateURLRequest(BaseModel):
     url: str
     target_language: str = "hi"
-    # None or "google" → Google Translate; any other value (e.g. "gemini") → LLM
     llm_provider: Optional[str] = None
 
 
 class TranslateBase64Request(BaseModel):
-    file_data: str    # base64-encoded file bytes
-    filename: str     # used to detect file type (.pdf or .docx)
+    file_data: str
+    filename: str
     target_language: str = "hi"
-    # None or "google" → Google Translate; any other value → LLM
     llm_provider: Optional[str] = None
 
 
@@ -306,7 +296,6 @@ async def _auto_review_translation(html: str, target_language: str) -> str:
     }
     target_lang_name = language_names.get(target_language, target_language)
 
-    # Protect known terms so the reviewer cannot accidentally translate them
     protected_html, term_map = _protect_for_review(html)
 
     token_note = ""
@@ -483,9 +472,6 @@ async def _do_translate_docx_llm(content: bytes, target_language: str, llm_provi
             translated_fileobj = io.BytesIO(translated_content)
             translated_html = convert_docx_stream_to_html(translated_fileobj)
 
-        # Auto-review disabled
-        # translated_html = await _auto_review_translation(translated_html, target_language)
-
         translated_pdf_b64 = None
         try:
             pdf_io = html_to_pdf(translated_html)
@@ -610,7 +596,7 @@ async def _do_translate_pdf_llm(content: bytes, target_language: str, llm_provid
 # --- Endpoints ---
 @app.get("/")
 def read_root():
-    return {"status": "running", "service": "ai-translate", "version": "1.0.0"}
+    return {"status": "running", "service": "ai-translate-translation", "version": "1.0.0"}
 
 
 @app.get("/config")
@@ -723,7 +709,7 @@ async def translate_pdf_llm_stream(
                         await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
                     except asyncio.TimeoutError:
                         pass
-                task.result()  # re-raise any exception
+                task.result()
 
                 with open(tmp_out_path, 'rb') as f:
                     translated_pdf_bytes = f.read()
@@ -804,13 +790,7 @@ async def translate_pdf_google(
 
 @app.post("/translate-url")
 async def translate_from_url(request: TranslateURLRequest):
-    """
-    Download a document from a URL and translate it.
-
-    - Supports .pdf and .docx files (detected from URL path or Content-Type header).
-    - llm_provider=null / "google"  → Google Translate
-    - llm_provider="gemini" / "openai" / etc. → LLM-based translation
-    """
+    """Download a document from a URL and translate it."""
     import requests as req_lib
 
     try:
@@ -820,7 +800,6 @@ async def translate_from_url(request: TranslateURLRequest):
         resp.raise_for_status()
         content = resp.content
 
-        # Detect file type from URL path first, then Content-Type
         url_path = request.url.lower().split('?')[0]
         content_type = resp.headers.get('Content-Type', '').lower()
 
@@ -857,13 +836,7 @@ async def translate_from_url(request: TranslateURLRequest):
 
 @app.post("/translate-base64")
 async def translate_from_base64(request: TranslateBase64Request):
-    """
-    Translate a base64-encoded document file.
-
-    - filename is used to detect the file type (.pdf or .docx).
-    - llm_provider=null / "google"  → Google Translate
-    - llm_provider="gemini" / "openai" / etc. → LLM-based translation
-    """
+    """Translate a base64-encoded document file."""
     try:
         try:
             content = base64.b64decode(request.file_data)

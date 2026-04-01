@@ -1,0 +1,10 @@
+{
+  "enabledFeatures": [
+    "translation",
+    "transliteration",
+    "comparison",
+    "summary",
+    "interact",
+    "extract"
+  ]
+}

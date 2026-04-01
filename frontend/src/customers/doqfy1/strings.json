@@ -1,0 +1,12 @@
+{
+  "brandName": "ClientBrand",
+  "appName": "ClientBrand Translate",
+  "tagline": "AI-Powered Document Intelligence",
+  "login": {
+    "title": "Welcome",
+    "subtitle": "Sign in to your document intelligence portal"
+  },
+  "translation": {
+    "pageTitle": "Document Translation"
+  }
+}

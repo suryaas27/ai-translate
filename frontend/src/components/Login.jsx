@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import doqfyLogo from '../assets/doqfy-logo.png';
+import { CUSTOMER_CONFIG } from '../customer.config';
 
 async function getUserIP() {
   try {
@@ -72,7 +72,7 @@ export default function Login({ onLogin }) {
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
-          <img src={doqfyLogo} alt="Doqfy" className="w-10 h-10" />
+          <img src={CUSTOMER_CONFIG.logoUrl} alt="Doqfy" className="w-10 h-10" />
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-cyan-500">
               DoqfAI
@@ -89,7 +89,7 @@ export default function Login({ onLogin }) {
           {/* Title */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-cyan-100 mb-4">
-              <img src={doqfyLogo} alt="Doqfy" className="w-10 h-10" />
+              <img src={CUSTOMER_CONFIG.logoUrl} alt="Doqfy" className="w-10 h-10" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900">Welcome back</h2>
             <p className="text-sm text-gray-500 mt-1">Sign in to access AI Translate</p>

@@ -1,0 +1,12 @@
+{
+  "brandName": "DoqfAI",
+  "appName": "DoqfAI Translate",
+  "tagline": "Document Translation for Indic Languages",
+  "login": {
+    "title": "Welcome to DoqfAI",
+    "subtitle": "Sign in to access AI-powered document translation"
+  },
+  "translation": {
+    "pageTitle": "AI Document Translation"
+  }
+}

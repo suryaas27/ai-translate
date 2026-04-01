@@ -415,7 +415,7 @@ Translations:"""
             'or': 'NotoSansOriya-Regular.ttf',
             'as': 'NotoSansBengali-Regular.ttf',
         }
-        fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        fonts_dir = os.path.join(os.path.dirname(__file__), "..", "fonts")
         font_filename = _font_map.get(target_language.lower())
         font_path = None
         if font_filename:
