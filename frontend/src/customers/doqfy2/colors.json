@@ -1,0 +1,14 @@
+{
+  "colors": {
+    "primary": "#003F72",
+    "secondary": "#f59e0b",
+    "primaryLight": "#E6EEF5",
+    "secondaryLight": "#fef9c3",
+    "error": "#ef4444",
+    "success": "#22c55e",
+    "bg": "#f8fafc",
+    "surface": "#ffffff",
+    "textPrimary": "#0f172a",
+    "textSecondary": "#94a3b8"
+  }
+}

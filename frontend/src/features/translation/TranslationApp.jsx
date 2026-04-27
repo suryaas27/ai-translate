@@ -351,8 +351,8 @@ const TranslationApp = () => {
 
     return (
         <div className="w-full max-w-6xl mx-auto space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <div className="flex items-center gap-3 mb-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+                <div className="flex items-start gap-3 mb-6">
                     <div className="p-2 bg-indigo-100 rounded-lg">
                         <Languages className="w-6 h-6 text-indigo-600" />
                     </div>
@@ -368,7 +368,7 @@ const TranslationApp = () => {
                     {/* Left: Input Section */}
                     <div className="lg:col-span-1 space-y-5">
                         {/* File Upload */}
-                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition-colors cursor-pointer relative">
+                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-5 sm:p-8 text-center hover:bg-gray-50 transition-colors cursor-pointer relative">
                             <input
                                 type="file"
                                 accept=".docx,.pdf"
@@ -453,11 +453,11 @@ const TranslationApp = () => {
                     </div>
 
                     {/* Right: Output Section */}
-                    <div className="lg:col-span-2 flex flex-col min-h-[600px]">
+                    <div className="lg:col-span-2 flex flex-col min-h-[300px] lg:min-h-[600px]">
                         {html ? (
                             <div className="h-full flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                                <div className="flex items-center justify-between p-3 border-b bg-gray-50">
-                                    <div className="flex items-center gap-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2 p-3 border-b bg-gray-50">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <span className="text-sm font-medium text-gray-700 flex items-center gap-2">
                                             <div className="w-2 h-2 rounded-full bg-green-500"></div>
                                             Translated to {translatedLang}
@@ -492,7 +492,7 @@ const TranslationApp = () => {
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <button
                                             onClick={downloadHtml}
                                             className="text-xs flex items-center gap-1 text-slate-600 hover:text-indigo-600 font-medium px-2 py-1 hover:bg-white rounded transition-colors"
@@ -629,17 +629,17 @@ const TranslationApp = () => {
                                         </div>
                                     ) : (
                                         nativeDocxB64 ? (
-                                            <div style={{ height: '80vh', width: '100%' }}>
+                                            <div style={{ height: 'clamp(400px, 60vh, 800px)', width: '100%' }}>
                                                 <SyncfusionView
                                                     docxB64={nativeDocxB64}
-                                                    height="80vh"
+                                                    height="clamp(400px, 60vh, 800px)"
                                                 />
                                             </div>
                                         ) : pdfUrl ? (
                                             <iframe
                                                 src={pdfUrl}
                                                 className="w-full border-none"
-                                                style={{ height: '70vh', minHeight: '500px' }}
+                                                style={{ height: 'clamp(350px, 60vh, 800px)' }}
                                                 title="PDF Preview"
                                             />
                                         ) : (
@@ -670,10 +670,10 @@ const TranslationApp = () => {
                                     .quill-word-editor .ql-editor {
                                         background-color: white;
                                         box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-                                        margin: 2rem auto;
-                                        padding: 2.54cm !important;
-                                        width: 21cm;
-                                        min-height: 29.7cm;
+                                        margin: 1rem auto 2rem;
+                                        padding: 1.5cm !important;
+                                        width: min(21cm, 100%);
+                                        min-height: min(29.7cm, 400px);
                                         font-family: 'Calibri', 'Inter', 'Segoe UI', sans-serif;
                                         font-size: 11pt;
                                         line-height: 1.5;
@@ -704,7 +704,7 @@ const TranslationApp = () => {
                                 `}</style>
                             </div>
                         ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 min-h-[600px]">
+                            <div className="h-full flex flex-col items-center justify-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50 min-h-[250px] lg:min-h-[600px]">
                                 <Languages className="w-16 h-16 mb-4 opacity-20" />
                                 <p className="text-lg font-medium text-gray-400">Translation Preview</p>
                                 <p className="text-sm opacity-60">Upload a document to see the result here</p>

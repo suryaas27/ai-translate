@@ -99,7 +99,7 @@ const ExtractApp = () => {
       </div>
 
       {/* Upload */}
-      <div className="rounded-xl border-2 border-dashed p-8 text-center" style={{ borderColor: 'var(--color-primaryLight)', backgroundColor: 'var(--color-surface)' }}>
+      <div className="rounded-xl border-2 border-dashed p-5 sm:p-8 text-center" style={{ borderColor: 'var(--color-primaryLight)', backgroundColor: 'var(--color-surface)' }}>
         <Upload className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--color-primary)' }} />
         <label className="cursor-pointer">
           <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>
@@ -190,7 +190,7 @@ const ExtractApp = () => {
 
       {/* Field results */}
       {result?.extracted && typeof result.extracted === 'object' && !Array.isArray(result.extracted) && (
-        <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #e5e7eb' }}>
+        <div className="rounded-xl overflow-x-auto" style={{ border: '1px solid #e5e7eb' }}>
           <table className="w-full text-sm">
             <thead style={{ backgroundColor: 'var(--color-primaryLight)' }}>
               <tr>

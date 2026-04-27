@@ -16,6 +16,7 @@ from interact.router import router as interact_router
 from comparison.router import router as comparison_router
 from transliteration.router import router as transliteration_router
 from dynamic_fields.router import router as dynamic_fields_router
+from redact.router import router as redact_router
 
 app = FastAPI(title="AI Service", version="1.0.0")
 
@@ -34,6 +35,7 @@ app.include_router(interact_router,        prefix="/api/v1/interact",        tag
 app.include_router(comparison_router,      prefix="/api/v1/comparison",      tags=["comparison"])
 app.include_router(transliteration_router, prefix="/api/v1/transliteration", tags=["transliteration"])
 app.include_router(dynamic_fields_router,  prefix="/api/v1/dynamic-fields",  tags=["dynamic-fields"])
+app.include_router(redact_router,          prefix="/api/v1/redact",           tags=["redact"])
 
 
 @app.get("/")

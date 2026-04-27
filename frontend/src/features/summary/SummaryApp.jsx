@@ -110,7 +110,7 @@ const SummaryApp = () => {
       </div>
 
       {/* Upload */}
-      <div className="rounded-xl border-2 border-dashed p-8 text-center" style={{ borderColor: 'var(--color-primaryLight)', backgroundColor: 'var(--color-surface)' }}>
+      <div className="rounded-xl border-2 border-dashed p-5 sm:p-8 text-center" style={{ borderColor: 'var(--color-primaryLight)', backgroundColor: 'var(--color-surface)' }}>
         <Upload className="w-8 h-8 mx-auto mb-3" style={{ color: 'var(--color-primary)' }} />
         <label className="cursor-pointer">
           <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>
@@ -126,7 +126,7 @@ const SummaryApp = () => {
       </div>
 
       {/* Options */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium mb-1" style={{ color: 'var(--color-textPrimary)' }}>
             Output Language

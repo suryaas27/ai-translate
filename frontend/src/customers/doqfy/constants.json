@@ -1,10 +1,11 @@
 {
   "enabledFeatures": [
     "translation",
-    "transliteration",
     "comparison",
     "summary",
     "interact",
-    "extract"
+    "extract",
+    "dynamic-fields",
+    "redact"
   ]
 }

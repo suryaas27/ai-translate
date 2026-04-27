@@ -1,0 +1,12 @@
+{
+  "brandName": "ClearAI",
+  "appName": "ClearAI Translate",
+  "tagline": "Simple, Fast Document Translation",
+  "login": {
+    "title": "Welcome to ClearAI",
+    "subtitle": "Sign in to access AI-powered document translation"
+  },
+  "translation": {
+    "pageTitle": "Document Translation"
+  }
+}

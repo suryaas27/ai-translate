@@ -1,3 +1,6 @@
 {
-  "enabledFeatures": ["translation", "summary", "extract"]
+  "enabledFeatures": [
+    "translation",
+    "summary"
+  ]
 }

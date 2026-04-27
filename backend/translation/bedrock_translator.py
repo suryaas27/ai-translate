@@ -74,15 +74,16 @@ class BedrockTranslator(BaseTranslator):
             text = text.replace(token, original)
         return text
 
-    def _call_bedrock(self, system_prompt: str, user_message: str) -> Tuple[str, int, int]:
+    def _call_bedrock(self, system_prompt: str, user_message: str, max_tokens: int | None = None) -> Tuple[str, int, int]:
         """Returns (output_text, input_tokens, output_tokens)."""
+        tokens = max_tokens if max_tokens is not None else self.max_tokens
         for attempt in range(self.max_retries):
             try:
                 response = self.client.converse(
                     modelId=self.model_id,
                     system=[{"text": system_prompt}],
                     messages=[{"role": "user", "content": [{"text": user_message}]}],
-                    inferenceConfig={"maxTokens": self.max_tokens, "temperature": 0.0},
+                    inferenceConfig={"maxTokens": tokens, "temperature": 0.0},
                 )
                 output = response["output"]["message"]["content"][0]["text"]
                 if response.get("stopReason") == "max_tokens":
@@ -256,11 +257,13 @@ Output EXACTLY {len(batch)} lines, each prefixed with its number:
 2: <translation of segment 2>
 ...
 
-Rules:
-- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, NEVER translate.
-- NEVER invent new __TERM_N__ tokens — only copy tokens already present in the input.
+Rules (NEVER break them):
+- Translate EVERY segment — do NOT leave any source-language script in the output.
+- Output EXACTLY {len(batch)} numbered lines, no more, no less.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, NEVER translate or invent new ones.
 - Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
-- No extra explanations or blank lines.
+- No summaries, no explanations, no blank lines, no meta-commentary.
+- If a segment is already in the target language, copy it unchanged.
 
 Segments:
 {numbered_input}
@@ -268,12 +271,16 @@ Segments:
 Translations:"""
 
                 system_prompt = (
-                    f"Professional corporate translator. Output exactly {len(batch)} numbered lines "
-                    f"(e.g. '1: translation'). Never add commentary. "
-                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim — never invent new ones."
+                    f"You are an expert multilingual translator for Indian languages. "
+                    f"Rules (NEVER break them): "
+                    f"(1) Translate EVERY segment to {target_lang_name} — do NOT leave source-language text in output. "
+                    f"(2) Output exactly {len(batch)} numbered lines (e.g. '1: translation'). "
+                    f"(3) Zero temperature — no hallucination, no invention, no additions. "
+                    f"(4) __TERM_N__ / __BRACKET_N__ tokens must be copied verbatim — never invent new ones. "
+                    f"(5) Never add commentary, headings, or blank lines between translations."
                 )
 
-                raw_output, in_tok, out_tok = self._call_bedrock(system_prompt, prompt)
+                raw_output, in_tok, out_tok = self._call_bedrock(system_prompt, prompt, max_tokens=2000)
                 if raw_output.startswith("```"):
                     lines = raw_output.split('\n')
                     if len(lines) > 2:
@@ -504,11 +511,13 @@ Output EXACTLY {len(batch)} lines, each prefixed with its number:
 2: <translation of segment 2>
 ...
 
-Rules:
-- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, NEVER translate.
-- NEVER invent new __TERM_N__ tokens — only copy tokens already present in the input.
+Rules (NEVER break them):
+- Translate EVERY segment — do NOT leave any source-language script in the output.
+- Output EXACTLY {len(batch)} numbered lines, no more, no less.
+- __TERM_N__ and __BRACKET_N__ tokens → copy verbatim, NEVER translate or invent new ones.
 - Checkboxes (☑ ☐ ✓ ✗ ■) → copy exactly as-is.
-- No extra explanations or blank lines.
+- No summaries, no explanations, no blank lines, no meta-commentary.
+- If a segment is already in the target language, copy it unchanged.
 
 Segments:
 {numbered_input}
@@ -516,12 +525,16 @@ Segments:
 Translations:"""
 
                 system_prompt = (
-                    f"Professional corporate translator. Output exactly {len(batch)} numbered lines "
-                    f"(e.g. '1: translation'). Never add commentary. "
-                    f"__TERM_N__ and __BRACKET_N__ tokens must be copied verbatim — never invent new ones."
+                    f"You are an expert multilingual translator for Indian languages. "
+                    f"Rules (NEVER break them): "
+                    f"(1) Translate EVERY segment to {target_lang_name} — do NOT leave source-language text in output. "
+                    f"(2) Output exactly {len(batch)} numbered lines (e.g. '1: translation'). "
+                    f"(3) Zero temperature — no hallucination, no invention, no additions. "
+                    f"(4) __TERM_N__ / __BRACKET_N__ tokens must be copied verbatim — never invent new ones. "
+                    f"(5) Never add commentary, headings, or blank lines between translations."
                 )
 
-                raw_output, _, _ = self._call_bedrock(system_prompt, prompt)
+                raw_output, _, _ = self._call_bedrock(system_prompt, prompt, max_tokens=2000)
                 if raw_output.startswith("```"):
                     lines_out = raw_output.split('\n')
                     if len(lines_out) > 2:

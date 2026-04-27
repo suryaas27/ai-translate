@@ -1,14 +1,14 @@
 {
   "colors": {
-    "primary":        "#1d4ed8",
-    "secondary":      "#f59e0b",
-    "primaryLight":   "#dbeafe",
-    "secondaryLight": "#fef3c7",
-    "error":          "#dc2626",
-    "success":        "#16a34a",
-    "bg":             "#f9fafb",
-    "surface":        "#ffffff",
-    "textPrimary":    "#111827",
-    "textSecondary":  "#6b7280"
+    "primary": "#F5D34F",
+    "secondary": "#F68529",
+    "primaryLight": "#FFF6CC",
+    "secondaryLight": "#FFE4D1",
+    "error": "#dc2626",
+    "success": "#16a34a",
+    "bg": "#FFFFFF",
+    "surface": "#ffffff",
+    "textPrimary": "#1A1A1A",
+    "textSecondary": "#6B6B6B"
   }
 }

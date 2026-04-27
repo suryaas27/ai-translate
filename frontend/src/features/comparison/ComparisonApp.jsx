@@ -101,7 +101,7 @@ const ComparisonApp = () => {
       </div>
 
       {/* Upload two files */}
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-4">
         <FileDropZone label="Document A" file={fileA} onChange={handleFile(setFileA)} />
         <FileDropZone label="Document B" file={fileB} onChange={handleFile(setFileB)} />
       </div>
@@ -158,7 +158,7 @@ const ComparisonApp = () => {
             </Section>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {semantic.additions_in_b?.length > 0 && (
               <Section title="Added in B" color="#16a34a">
                 <ul className="space-y-1">

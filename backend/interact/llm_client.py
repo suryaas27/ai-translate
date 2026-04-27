@@ -37,8 +37,96 @@ class LLMClient:
     def call(self, system: str, user: str, provider: str = "anthropic") -> str:
         """Call LLM and return text response."""
         if self.flow == "server":
+            print(f"[LLM] call → BEDROCK | model={self.model_id}")
             return self._call_bedrock(system, user)
+        model_hint = {
+            "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+            "gemini":    os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+            "openai":    os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        }.get(provider, provider)
+        print(f"[LLM] call → DIRECT | provider={provider} | model={model_hint}")
         return self._call_direct(system, user, provider)
+
+    def stream(self, system: str, user: str, provider: str = "anthropic"):
+        """Yield text tokens as a generator for streaming responses."""
+        if self.flow == "server":
+            print(f"[LLM] stream → BEDROCK | model={self.model_id}")
+            yield from self._stream_bedrock(system, user)
+        else:
+            model_hint = {
+                "anthropic": os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+                "gemini":    os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+                "openai":    os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            }.get(provider, provider)
+            print(f"[LLM] stream → DIRECT | provider={provider} | model={model_hint}")
+            yield from self._stream_direct(system, user, provider)
+
+    def _stream_bedrock(self, system: str, user: str):
+        resp = self.bedrock.converse_stream(
+            modelId=self.model_id,
+            system=[{"text": system}],
+            messages=[{"role": "user", "content": [{"text": user}]}],
+            inferenceConfig={"maxTokens": self.max_tokens, "temperature": 0.0},
+        )
+        for event in resp["stream"]:
+            chunk = event.get("contentBlockDelta", {}).get("delta", {}).get("text")
+            if chunk:
+                yield chunk
+
+    def _stream_direct(self, system: str, user: str, provider: str):
+        if provider == "gemini":
+            yield from self._stream_gemini(system, user)
+        elif provider == "openai":
+            yield from self._stream_openai(system, user)
+        else:
+            yield from self._stream_anthropic(system, user)
+
+    def _stream_anthropic(self, system: str, user: str):
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+        with client.messages.stream(
+            model=model,
+            max_tokens=self.max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        ) as stream:
+            for text in stream.text_stream:
+                yield text
+
+    def _stream_gemini(self, system: str, user: str):
+        from google import genai
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        for chunk in client.models.generate_content_stream(
+            model=model,
+            contents=user,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=system,
+                max_output_tokens=self.max_tokens,
+                temperature=0.0,
+            ),
+        ):
+            if chunk.text:
+                yield chunk.text
+
+    def _stream_openai(self, system: str, user: str):
+        from openai import OpenAI
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        for chunk in client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=self.max_tokens,
+            temperature=0.0,
+            stream=True,
+        ):
+            text = chunk.choices[0].delta.content
+            if text:
+                yield text
 
     # ------------------------------------------------------------------
     def _call_bedrock(self, system: str, user: str) -> str:

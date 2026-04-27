@@ -79,13 +79,13 @@ export default function Login({ onLogin }) {
             </span>{' '}
             Translate
           </h1>
-          <span className="text-sm text-gray-500">Document Translation for Indic Languages</span>
+          <span className="text-sm text-gray-500 hidden sm:block">Document Translation for Indic Languages</span>
         </div>
       </header>
 
       {/* Login Card */}
       <div className="flex-1 flex items-center justify-center px-4 py-12">
-        <div className="bg-white rounded-2xl shadow-lg w-full max-w-md p-8">
+        <div className="bg-white rounded-2xl shadow-lg w-full max-w-md p-5 sm:p-8">
           {/* Title */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-cyan-100 mb-4">

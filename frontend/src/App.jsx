@@ -3,28 +3,31 @@ import { ThemeProvider, useTheme } from './theme/ThemeProvider';
 import { CUSTOMER_CONFIG } from './customer.config';
 import Login from './components/Login';
 import TranslationApp from './features/translation/TranslationApp';
-import TransliterationApp from './features/transliteration/TransliterationApp';
 import ComparisonApp from './features/comparison/ComparisonApp';
 import SummaryApp from './features/summary/SummaryApp';
 import InteractApp from './features/interact/InteractApp';
 import ExtractApp from './features/extract/ExtractApp';
+import DynamicFieldsApp from './features/dynamic-fields/DynamicFieldsApp';
+import RedactApp from './features/redact/RedactApp';
 
 const FEATURE_MAP = {
   translation:     TranslationApp,
-  transliteration: TransliterationApp,
   comparison:      ComparisonApp,
   summary:         SummaryApp,
   interact:        InteractApp,
   extract:         ExtractApp,
+  'dynamic-fields': DynamicFieldsApp,
+  redact:           RedactApp,
 };
 
 const FEATURE_LABELS = {
-  translation:     'Translate',
-  transliteration: 'Transliterate',
+  translation:     'Transliteration',
   comparison:      'Compare',
   summary:         'Summary',
   interact:        'Interact',
   extract:         'Extract',
+  'dynamic-fields': 'eSign & eStamp',
+  redact:           'Redact',
 };
 
 function AppShell() {
@@ -60,9 +63,9 @@ function AppShell() {
   return (
     <div className="min-h-screen font-sans" style={{ backgroundColor: "var(--color-bg)", color: "var(--color-textPrimary)" }}>
       <header className="sticky top-0 z-10 shadow-sm" style={{ backgroundColor: "var(--color-surface)" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3">
-          <img src={CUSTOMER_CONFIG.logoUrl} alt={brandName} className="w-10 h-10" />
-          <h1 className="text-xl font-bold tracking-tight">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-2 sm:gap-3 overflow-hidden">
+          <img src={CUSTOMER_CONFIG.logoUrl} alt={brandName} className="w-8 h-8 sm:w-10 sm:h-10 flex-shrink-0" />
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight flex-shrink-0">
             <span className="gradient-brand">{brandName}</span>
           </h1>
           {tagline && (
@@ -72,7 +75,7 @@ function AppShell() {
           )}
 
           {showTabs && (
-            <nav className="flex gap-1 ml-4 hidden sm:flex">
+            <nav className="hidden sm:flex gap-1 ml-4">
               {enabledFeatures.map((f) => (
                 <button
                   key={f}

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Upload, Loader2, AlertCircle, Send, FileText, Trash2 } from 'lucide-react';
+// Loader2 kept for upload spinner
 import { FEATURE_URLS } from '../../config';
 
 const InteractApp = () => {
@@ -66,10 +67,12 @@ const InteractApp = () => {
     setError(null);
 
     const newHistory = [...history, { role: 'user', content: q }];
-    setHistory(newHistory);
+    // Add empty assistant message that will be filled as tokens stream in
+    const withAssistant = [...newHistory, { role: 'assistant', content: '' }];
+    setHistory(withAssistant);
 
     try {
-      const res = await fetch(`${FEATURE_URLS.interact}/chat`, {
+      const res = await fetch(`${FEATURE_URLS.interact}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -83,11 +86,45 @@ const InteractApp = () => {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
         throw new Error(err.detail || 'Request failed');
       }
-      const data = await res.json();
-      setHistory([...newHistory, { role: 'assistant', content: data.answer }]);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') break;
+          try {
+            const parsed = JSON.parse(payload);
+            if (parsed.error) {
+              setError(`Stream error: ${parsed.error}`);
+              break;
+            }
+            if (parsed.token) {
+              setHistory(prev => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  content: updated[updated.length - 1].content + parsed.token,
+                };
+                return updated;
+              });
+            }
+          } catch (parseErr) {
+            console.warn('SSE parse error:', parseErr, 'line:', line);
+          }
+        }
+      }
     } catch (e) {
       setError(e.message);
-      setHistory(newHistory); // keep user message
+      setHistory(newHistory); // remove empty assistant message
     } finally {
       setAnswering(false);
     }
@@ -152,14 +189,14 @@ const InteractApp = () => {
         /* Chat section */
         <div className="space-y-4">
           {/* Doc info bar */}
-          <div className="flex items-center justify-between rounded-lg px-4 py-2"
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2"
             style={{ backgroundColor: 'var(--color-primaryLight)' }}>
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
-              <span className="text-sm font-medium" style={{ color: 'var(--color-primary)' }}>
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--color-primary)' }} />
+              <span className="text-sm font-medium truncate" style={{ color: 'var(--color-primary)' }}>
                 {uploadInfo?.filename}
               </span>
-              <span className="text-xs" style={{ color: 'var(--color-textSecondary)' }}>
+              <span className="text-xs flex-shrink-0" style={{ color: 'var(--color-textSecondary)' }}>
                 ({(uploadInfo?.char_count || 0).toLocaleString()} chars)
               </span>
             </div>
@@ -177,7 +214,7 @@ const InteractApp = () => {
 
           {/* Chat history */}
           <div className="rounded-xl overflow-hidden flex flex-col"
-            style={{ backgroundColor: 'var(--color-surface)', border: '1px solid #e5e7eb', minHeight: '360px', maxHeight: '480px' }}>
+            style={{ backgroundColor: 'var(--color-surface)', border: '1px solid #e5e7eb', minHeight: '300px', maxHeight: 'calc(100vh - 320px)' }}>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {history.length === 0 && (
                 <div className="flex flex-col items-center justify-center h-48 text-center">
@@ -186,23 +223,30 @@ const InteractApp = () => {
                   </p>
                 </div>
               )}
-              {history.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm"
-                    style={msg.role === 'user'
-                      ? { backgroundColor: 'var(--color-primary)', color: 'white' }
-                      : { backgroundColor: 'var(--color-bg)', color: 'var(--color-textPrimary)', border: '1px solid #e5e7eb' }}>
-                    <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+              {history.map((msg, i) => {
+                const isStreamingBubble = answering && msg.role === 'assistant' && i === history.length - 1;
+                return (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm"
+                      style={msg.role === 'user'
+                        ? { backgroundColor: 'var(--color-primary)', color: 'white' }
+                        : { backgroundColor: 'var(--color-bg)', color: 'var(--color-textPrimary)', border: '1px solid #e5e7eb' }}>
+                      {isStreamingBubble && !msg.content ? (
+                        <span className="flex items-center gap-1" style={{ color: 'var(--color-textSecondary)' }}>
+                          <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: 'var(--color-primary)', animationDelay: '0ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: 'var(--color-primary)', animationDelay: '150ms' }} />
+                          <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: 'var(--color-primary)', animationDelay: '300ms' }} />
+                        </span>
+                      ) : (
+                        <p className="whitespace-pre-wrap leading-relaxed">
+                          {msg.content}
+                          {isStreamingBubble && <span className="inline-block w-0.5 h-4 ml-0.5 align-middle animate-pulse" style={{ backgroundColor: 'var(--color-primary)' }} />}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {answering && (
-                <div className="flex justify-start">
-                  <div className="rounded-xl px-4 py-2.5" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid #e5e7eb' }}>
-                    <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--color-primary)' }} />
-                  </div>
-                </div>
-              )}
+                );
+              })}
               <div ref={bottomRef} />
             </div>
 
